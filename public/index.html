@@ -106,28 +106,48 @@
         <button id="rematch-btn" onclick="location.reload()">REMATCH</button>
     </div>
 
-    <!-- Lobby -->
+    <!-- Lobby (host view) -->
     <div id="lobby" style="display: none;">
         <div class="lobby-box">
             <h1>ARENA FPS</h1>
-            <p class="lobby-sub">1v1 Dagger Arena — THE FINALS Inspired</p>
-            <div class="lobby-settings">
-                <label>
-                    Game Mode:
-                    <select id="game-mode">
-                        <option value="multiplayer">Multiplayer (1v1)</option>
-                        <option value="vsai">Vs AI (1v1 Bot)</option>
-                    </select>
-                </label>
-                <label>
-                    Kill Goal:
-                    <input type="number" id="kill-goal" value="10" min="1" max="50">
-                </label>
-                <label>
-                    Volume:
+            <p class="lobby-sub">Dagger Arena — THE FINALS Inspired</p>
+
+            <!-- Host config panel -->
+            <div id="host-config">
+                <div class="lobby-config-row">
+                    <span class="config-label">PLAYERS</span>
+                    <div class="counter-wrap">
+                        <button class="counter-btn" id="humans-minus">−</button>
+                        <span id="humans-display">1</span>
+                        <button class="counter-btn" id="humans-plus">+</button>
+                    </div>
+                    <span class="config-label">BOTS</span>
+                    <div class="counter-wrap">
+                        <button class="counter-btn" id="bots-minus">−</button>
+                        <span id="bots-display">1</span>
+                        <button class="counter-btn" id="bots-plus">+</button>
+                    </div>
+                </div>
+                <div class="lobby-config-row">
+                    <span class="config-label">KILL GOAL</span>
+                    <div class="counter-wrap">
+                        <button class="counter-btn" id="goal-minus">−</button>
+                        <span id="goal-display">10</span>
+                        <button class="counter-btn" id="goal-plus">+</button>
+                    </div>
+                    <span class="config-label">VOLUME</span>
                     <input type="range" id="volume-slider" min="0" max="100" value="60">
-                </label>
+                </div>
+                <div id="lobby-player-list" class="lobby-player-list"></div>
             </div>
+
+            <!-- Non-host waiting panel -->
+            <div id="waiting-panel" style="display:none;">
+                <p class="waiting-text">Waiting for host to start…</p>
+                <div id="lobby-config-display" class="lobby-config-display"></div>
+                <div id="lobby-player-list-nonhost" class="lobby-player-list"></div>
+            </div>
+
             <div class="lobby-controls">
                 <h3>CONTROLS</h3>
                 <div class="controls-grid">
@@ -142,7 +162,7 @@
                     <span>MOUSE</span><span>Look Around</span>
                 </div>
             </div>
-            <button id="ready-btn">READY</button>
+            <button id="start-btn" style="display:none;">START GAME</button>
             <p class="lobby-hint">Click the game area to lock your mouse</p>
         </div>
     </div>

@@ -596,7 +596,106 @@ body {
     opacity: 0.7;
 }
 
-#ready-btn {
+/* ─── Host Config ─── */
+.lobby-config-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.config-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    opacity: 0.6;
+    min-width: 70px;
+    text-align: right;
+}
+
+.counter-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.counter-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 18px;
+    font-weight: 700;
+    background: #1e293b;
+    color: #fff;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1;
+    transition: background 0.15s;
+}
+
+.counter-btn:hover {
+    background: #334155;
+}
+
+#humans-display, #bots-display, #goal-display {
+    font-size: 22px;
+    font-weight: 800;
+    min-width: 30px;
+    text-align: center;
+}
+
+#volume-slider {
+    width: 100px;
+    accent-color: #60a5fa;
+}
+
+.lobby-player-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin: 12px 0;
+    min-height: 28px;
+}
+
+.lobby-player-chip {
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #94a3b8;
+}
+
+.lobby-player-chip.is-host {
+    border-color: #3b82f6;
+    color: #60a5fa;
+}
+
+.lobby-player-chip.is-you {
+    border-color: #22c55e;
+    color: #4ade80;
+}
+
+.lobby-config-display {
+    font-size: 13px;
+    opacity: 0.65;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+}
+
+.waiting-text {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    opacity: 0.7;
+    margin-bottom: 16px;
+}
+
+#start-btn, #ready-btn {
     padding: 14px 50px;
     font-size: 18px;
     font-weight: 800;
@@ -607,14 +706,15 @@ body {
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s;
+    margin-bottom: 8px;
 }
 
-#ready-btn:hover:not(:disabled) {
+#start-btn:hover:not(:disabled), #ready-btn:hover:not(:disabled) {
     transform: scale(1.05);
     box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
 }
 
-#ready-btn:disabled {
+#start-btn:disabled, #ready-btn:disabled {
     opacity: 0.6;
     cursor: default;
 }

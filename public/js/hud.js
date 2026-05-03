@@ -75,14 +75,17 @@ export class HUD {
         }
 
         // ─── Dash charges ───
+        const rechargeProgress = localPlayer.dashRechargeTimer > 0
+            ? 1 - localPlayer.dashRechargeTimer / CONFIG.DASH_COOLDOWN
+            : 0;
         this.dashPips.forEach((pip, i) => {
             if (i < localPlayer.dashCharges) {
                 pip.classList.add('active');
                 pip.style.opacity = '1';
             } else {
                 pip.classList.remove('active');
-                const cooldown = localPlayer.dashCooldowns?.[i] || 0;
-                pip.style.opacity = cooldown > 0 ? `${1 - cooldown / CONFIG.DASH_COOLDOWN}` : '0.3';
+                // All empty pips show the same shared recharge fill
+                pip.style.opacity = rechargeProgress > 0 ? `${rechargeProgress}` : '0.3';
             }
         });
 
@@ -105,9 +108,7 @@ export class HUD {
 
         // ─── Score ───
         if (allPlayers && allPlayers.length >= 2) {
-            const p1 = allPlayers[0];
-            const p2 = allPlayers[1];
-            this.scoreDisplay.textContent = `${p1.kills} — ${p2.kills}`;
+            this.scoreDisplay.textContent = allPlayers.map(p => p.kills).join(' — ');
         }
 
         // ─── Hit marker fade ───
@@ -303,7 +304,7 @@ export class HUD {
                 const isMe = s.id === localId;
                 const isW = s.id === winnerId;
                 const cls = isW ? 'winner' : 'loser';
-                const label = isMe ? 'You' : `Player ${s.id}`;
+                const label = isMe ? 'You' : `Player ${s.displayId ?? s.id}`;
                 return `<div class="score-row">
                     <span class="player-name ${cls}">${label}</span>
                     <span class="player-stats">${s.kills} kills / ${s.deaths} deaths</span>

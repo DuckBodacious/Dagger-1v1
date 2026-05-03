@@ -44,7 +44,7 @@ export class PlayerState {
 
         // Dash state
         this.dashCharges = CONFIG.DASH_CHARGES;
-        this.dashCooldowns = new Array(CONFIG.DASH_CHARGES).fill(0);
+        this.dashRechargeTimer = 0;
         this.dashing = false;
         this.dashTimer = 0;
         this.dashDirX = 0;

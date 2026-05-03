@@ -93,14 +93,12 @@ export function processMovement(player, input, dt, collisionCheck) {
         player.dashInputConsumed = false;
     }
 
-    // Dash cooldown regeneration
-    for (let i = 0; i < player.dashCooldowns.length; i++) {
-        if (player.dashCooldowns[i] > 0) {
-            player.dashCooldowns[i] -= dt;
-            if (player.dashCooldowns[i] <= 0) {
-                player.dashCooldowns[i] = 0;
-                player.dashCharges = Math.min(CONFIG.DASH_CHARGES, player.dashCharges + 1);
-            }
+    // Shared recharge timer — all spent charges come back at once
+    if (player.dashCharges < CONFIG.DASH_CHARGES && player.dashRechargeTimer > 0) {
+        player.dashRechargeTimer -= dt;
+        if (player.dashRechargeTimer <= 0) {
+            player.dashCharges = CONFIG.DASH_CHARGES;
+            player.dashRechargeTimer = 0;
         }
     }
 
@@ -383,14 +381,9 @@ function startDash(player, input) {
         player.dashDirZ = forward.z;
     }
 
-    // Use a charge
+    // Use a charge — shared timer resets to 5s on every use
     player.dashCharges--;
-    for (let i = 0; i < player.dashCooldowns.length; i++) {
-        if (player.dashCooldowns[i] <= 0) {
-            player.dashCooldowns[i] = CONFIG.DASH_COOLDOWN;
-            break;
-        }
-    }
+    player.dashRechargeTimer = CONFIG.DASH_COOLDOWN;
 
     // Reduce vertical velocity during dash (not zero — allows slight drift)
     player.vy *= 0.2;

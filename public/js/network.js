@@ -19,6 +19,8 @@ export class NetworkClient {
         this.onDestruction = null;
         this.onJumpPadEvent = null;
         this.onObjectEvent = null;
+        this.onLobbyState = null;
+        this.onPromotedToHost = null;
     }
 
     connect(url) {
@@ -52,12 +54,21 @@ export class NetworkClient {
         switch (msg.type) {
             case 'welcome':
                 this.playerId = msg.playerId;
-                if (this.onConnected) this.onConnected(msg.playerId);
+                this.displayId = msg.displayId;
+                if (this.onConnected) this.onConnected(msg.playerId, msg.isHost, msg.displayId);
+                break;
+
+            case 'promoted_to_host':
+                if (this.onPromotedToHost) this.onPromotedToHost();
+                break;
+
+            case 'lobby_state':
+                if (this.onLobbyState) this.onLobbyState(msg);
                 break;
 
             case 'full':
-                console.warn('[Network] Server is full — try again when a slot opens');
-                document.querySelector('.connecting-text').textContent = 'Server is full (2/2). Reload to retry.';
+                console.warn('[Network] Server is full or game in progress');
+                document.querySelector('.connecting-text').textContent = 'Lobby full or game in progress. Reload to retry.';
                 break;
 
             case 'game_state':
@@ -132,13 +143,14 @@ export class NetworkClient {
         this.ws.send(JSON.stringify(inputMsg));
     }
 
-    sendReady(killGoal, gameMode) {
+    sendLobbyConfig(config) {
         if (!this.connected) return;
-        this.ws.send(JSON.stringify({
-            type: 'ready',
-            killGoal: killGoal || 10,
-            gameMode: gameMode || 'multiplayer',
-        }));
+        this.ws.send(JSON.stringify({ type: 'lobby_config', ...config }));
+    }
+
+    sendStartGame() {
+        if (!this.connected) return;
+        this.ws.send(JSON.stringify({ type: 'start_game' }));
     }
 
     // Get inputs that haven't been acknowledged by server yet

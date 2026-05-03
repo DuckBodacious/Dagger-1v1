@@ -171,7 +171,7 @@ export function respawnPlayer(player, spawnX, spawnZ) {
     player.attackState = 'idle';
     player.chargeTimer = 0;
     player.dashCharges = CONFIG.DASH_CHARGES;
-    player.dashCooldowns.fill(0);
+    player.dashRechargeTimer = 0;
     player.dashing = false;
     player.sliding = false;
     player.crouching = false;

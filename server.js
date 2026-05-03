@@ -93,6 +93,8 @@ const CONFIG = {
 const SPAWN_POINTS = [
     { x: -15, z: -15 },
     { x: 15, z: 15 },
+    { x: -15, z: 15 },
+    { x: 15, z: -15 },
 ];
 
 const COLLISION_BOXES = [];
@@ -332,7 +334,7 @@ class ServerPlayer {
         this.dashing = false;
         this.dashTime = 0;
         this.dashCharges = CONFIG.DASH_CHARGES;
-        this.dashCooldown = 0;
+        this.dashRechargeTimer = 0;
         this.dashInputConsumed = false;
         this.mantling = false;
         this.mantleTime = 0;
@@ -381,6 +383,7 @@ class ServerPlayer {
             mantling: this.mantling,
             attackState: this.attackState, chargeTimer: this.chargeTimer,
             dashCharges: this.dashCharges,
+            dashRechargeTimer: this.dashRechargeTimer,
             kills: this.kills, deaths: this.deaths,
             respawnTimer: this.respawnTimer,
             lastProcessedInput: this.lastProcessedInput,
@@ -468,7 +471,7 @@ function applyExplosion(ex, ey, ez) {
                 player.alive = false;
                 player.respawnTimer = CONFIG.RESPAWN_TIME;
                 player.deaths++;
-                broadcast({ type: 'kill_feed', killerId: -1, victimId: player.id, weapon: 'explosion' });
+                broadcast({ type: 'kill_feed', killerId: -1, killerDisplayId: -1, victimId: player.id, victimDisplayId: getDisplayId(player.id), weapon: 'explosion' });
             }
         }
     }
@@ -506,7 +509,7 @@ function applyExplosionAt(ex, ey, ez, maxDamage) {
                 player.alive = false;
                 player.respawnTimer = CONFIG.RESPAWN_TIME;
                 player.deaths++;
-                broadcast({ type: 'kill_feed', killerId: -1, victimId: player.id, weapon: 'explosion' });
+                broadcast({ type: 'kill_feed', killerId: -1, killerDisplayId: -1, victimId: player.id, victimDisplayId: getDisplayId(player.id), weapon: 'explosion' });
             }
         }
     }
@@ -523,7 +526,7 @@ function thrownHitPlayer(thrown, target) {
         if (target.hp <= 0) {
             target.hp = 0; target.alive = false;
             target.respawnTimer = CONFIG.RESPAWN_TIME; target.deaths++;
-            broadcast({ type: 'kill_feed', killerId: thrown.ownerId, victimId: target.id, weapon: 'explosion' });
+            broadcast({ type: 'kill_feed', killerId: thrown.ownerId, killerDisplayId: getDisplayId(thrown.ownerId), victimId: target.id, victimDisplayId: getDisplayId(target.id), weapon: 'explosion' });
         }
         applyExplosionAt(thrown.x, thrown.y, thrown.z, 50);
         broadcast({ type: 'object_landed', id: thrown.id, action: 'explode', x: thrown.x, y: thrown.y, z: thrown.z });
@@ -536,7 +539,7 @@ function thrownHitPlayer(thrown, target) {
         if (target.hp <= 0) {
             target.hp = 0; target.alive = false;
             target.respawnTimer = CONFIG.RESPAWN_TIME; target.deaths++;
-            broadcast({ type: 'kill_feed', killerId: thrown.ownerId, victimId: target.id, weapon: 'explosion' });
+            broadcast({ type: 'kill_feed', killerId: thrown.ownerId, killerDisplayId: getDisplayId(thrown.ownerId), victimId: target.id, victimDisplayId: getDisplayId(target.id), weapon: 'explosion' });
         }
         broadcast({ type: 'object_landed', id: thrown.id, action: 'destroy', x: thrown.x, y: thrown.y, z: thrown.z });
     }
@@ -657,10 +660,15 @@ function botPlaceJumpPad(botId) {
     return pad;
 }
 
-// Nav waypoints for floor-aware routing through the building's staircases
+// Nav waypoints for floor-aware routing through the building's staircases and doors
 const BOT_NAV = {
-    frontDoorLeft:  { x: -2.0, z: -4.3 },  // exterior approach to left ground-floor door
-    groundStairBot: { x: -5.5, z: -2.0 },  // base of ground→upper staircase (inside building)
+    // Ground-floor door approaches (outside → inside)
+    frontDoorLeft:  { x: -2.0, z: -4.3 },  // left front door (outside)
+    frontDoorRight: { x:  2.0, z: -4.3 },  // right front door (outside)
+    interiorDoor:   { x: -0.4, z:  0.8 },  // interior dividing wall door
+    backDoor:       { x:  0.0, z:  4.3 },  // back door (inside → outside)
+    // Staircase routing
+    groundStairBot: { x: -5.5, z: -2.0 },  // base of ground→upper staircase
     upperStairBot:  { x:  5.5, z:  2.5 },  // base of upper→roof staircase
 };
 
@@ -689,8 +697,13 @@ class BotAI {
         this.stuckStrafeDir = 1;
         this.stuckStrafeTimer = 0;
         this.dodgeCooldown = 0;
+        this.dodgedThisEngagement = false;  // only dodge once per engagement
+        this.stabWasBackstab = false;       // was the last charged attack from behind?
         this.aerialPhase = null;
-        this.navWaypoint = null;
+        this.navQueue = [];  // ordered list of waypoints to walk through
+        this.barrelTarget = null;   // explosive barrel being aimed at for a shot
+        this.coverPos = null;       // cover position to navigate to while kiting
+        this.gooGoal = false;       // true when carrying a goo barrel to throw as cover
     }
 
     idleInput() {
@@ -722,13 +735,136 @@ class BotAI {
         return nearest;
     }
 
+    // Returns nearest explosive barrel within 7m of bot (prioritised for carrying/throwing)
+    findNearbyExplosiveBarrel() {
+        const bot = this.bot;
+        let nearest = null, nearestDist = 7.0;
+        for (const dest of destructibles) {
+            if (!dest.alive || dest.type !== 'explosive' || dest.carriedBy != null) continue;
+            const dx = dest.x - bot.x, dz = dest.z - bot.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < nearestDist) { nearestDist = d; nearest = dest; }
+        }
+        return nearest;
+    }
+
+    // Returns an explosive barrel near the target that would deal lethal damage if triggered
+    findLethalExplosiveNearTarget(target) {
+        for (const dest of destructibles) {
+            if (!dest.alive || dest.type !== 'explosive' || dest.carriedBy != null) continue;
+            const dx = dest.x - target.x, dz = dest.z - target.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < CONFIG.EXPLOSIVE_RADIUS) {
+                const dmg = Math.round((1 - dist / CONFIG.EXPLOSIVE_RADIUS) * CONFIG.EXPLOSIVE_DAMAGE);
+                if (dmg >= target.hp) return dest;
+            }
+        }
+        return null;
+    }
+
+    // Returns nearest alive goo barrel within 8m of bot
+    findGooBarrelNearBot() {
+        const bot = this.bot;
+        let nearest = null, nearestDist = 8.0;
+        for (const dest of destructibles) {
+            if (!dest.alive || dest.type !== 'goo' || dest.carriedBy != null) continue;
+            const dx = dest.x - bot.x, dz = dest.z - bot.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < nearestDist) { nearestDist = d; nearest = dest; }
+        }
+        return nearest;
+    }
+
+    // Plan a ground-floor route through building doors when walls block the direct path.
+    // Returns an ordered array of BOT_NAV waypoints, or null if no door routing needed.
+    planRoute(bot, target) {
+        // Only applies at ground level; vertical routing handled separately
+        if (bot.y > 3.5 || target.y > 3.5) return null;
+
+        // Building X bounds — if both are well outside, no walls to worry about
+        const BX0 = -6.5, BX1 = 6.5;
+        if (Math.min(bot.x, target.x) > BX1 + 2 || Math.max(bot.x, target.x) < BX0 - 2) return null;
+
+        const FRONT_Z  = -4.7;   // inside edge of front wall
+        const BACK_Z   =  4.7;   // inside edge of back wall
+        const INT_Z    =  0.8;   // past interior dividing wall
+
+        const bFront = bot.z    < FRONT_Z;
+        const bBack  = bot.z    > BACK_Z;
+        const bNear  = !bFront && !bBack && bot.z    < INT_Z;  // inside, front half
+        const bFar   = !bFront && !bBack && bot.z   >= INT_Z;  // inside, back half
+
+        const tFront = target.z < FRONT_Z;
+        const tBack  = target.z > BACK_Z;
+        const tNear  = !tFront && !tBack && target.z < INT_Z;
+        const tFar   = !tFront && !tBack && target.z >= INT_Z;
+
+        // Already same zone — no routing needed
+        if ((bFront && tFront) || (bBack && tBack) ||
+            (bNear  && tNear ) || (bFar  && tFar )) return null;
+
+        // Pick the front door closest to whoever is near the front
+        const refX = (bFront || bNear) ? bot.x : target.x;
+        const frontDoor = Math.abs(refX - BOT_NAV.frontDoorLeft.x) <= Math.abs(refX - BOT_NAV.frontDoorRight.x)
+            ? BOT_NAV.frontDoorLeft : BOT_NAV.frontDoorRight;
+
+        if (bFront) {
+            // Outside front → inside near half
+            if (tNear)  return [frontDoor];
+            // Outside front → inside far half or outside back
+            if (tFar)   return [frontDoor, BOT_NAV.interiorDoor];
+            if (tBack)  return [frontDoor, BOT_NAV.interiorDoor, BOT_NAV.backDoor];
+        }
+        if (bBack) {
+            // Outside back → inside far half
+            if (tFar)   return [BOT_NAV.backDoor];
+            // Outside back → inside near half or outside front
+            if (tNear)  return [BOT_NAV.backDoor, BOT_NAV.interiorDoor];
+            if (tFront) return [BOT_NAV.backDoor, BOT_NAV.interiorDoor, frontDoor];
+        }
+        if (bNear) {
+            // Inside front half → across interior wall
+            if (tFar)   return [BOT_NAV.interiorDoor];
+            if (tBack)  return [BOT_NAV.interiorDoor, BOT_NAV.backDoor];
+            if (tFront) return [frontDoor];
+        }
+        if (bFar) {
+            // Inside back half → across interior wall
+            if (tNear)  return [BOT_NAV.interiorDoor];
+            if (tFront) return [BOT_NAV.interiorDoor, frontDoor];
+            if (tBack)  return [BOT_NAV.backDoor];
+        }
+        return null;
+    }
+
+    // Returns a position behind the nearest cover object (crate/barrel) relative to the player
+    findCoverPosition(target) {
+        const bot = this.bot;
+        let nearest = null, nearestDist = 6.0;
+        for (const dest of destructibles) {
+            if (!dest.alive || dest.carriedBy != null) continue;
+            const dx = dest.x - bot.x, dz = dest.z - bot.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < nearestDist) { nearestDist = d; nearest = dest; }
+        }
+        if (!nearest) return null;
+        // Compute direction from player to cover object, step 1.5m behind it
+        const toCoverX = nearest.x - target.x, toCoverZ = nearest.z - target.z;
+        const len = Math.sqrt(toCoverX * toCoverX + toCoverZ * toCoverZ) || 1;
+        return { x: nearest.x + (toCoverX / len) * 1.5, z: nearest.z + (toCoverZ / len) * 1.5 };
+    }
+
     update(dt, players) {
         const bot = this.bot;
 
-        // Find the human target
+        // Find the closest alive enemy (any player that isn't this bot)
         let target = null;
+        let targetDist = Infinity;
         for (const p of players.values()) {
-            if (!p.isBot && p.alive) { target = p; break; }
+            if (p.id === bot.id || !p.alive) continue;
+            const dx = p.x - bot.x, dz = p.z - bot.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < targetDist) { target = p; targetDist = dist; }
         }
         if (!target) return this.idleInput();
 
@@ -745,7 +881,9 @@ class BotAI {
         const toDX = distH > 0.01 ? dx / distH : 0, toDZ = distH > 0.01 ? dz / distH : 0;
         const botFacingPlayer = botFwdX * toDX + botFwdZ * toDZ > 0.65;
         const playerFwdX = -Math.sin(target.yaw), playerFwdZ = -Math.cos(target.yaw);
-        const playerFacingBot = playerFwdX * (-toDX) + playerFwdZ * (-toDZ) > 0.45;
+        const playerFacingBotDot = playerFwdX * (-toDX) + playerFwdZ * (-toDZ);
+        const playerFacingBot = playerFacingBotDot > 0.45;
+        const playerBackExposed = playerFacingBotDot < -0.5; // player clearly facing away
         const mutualFacing = botFacingPlayer && playerFacingBot;
 
         this.passiveNext -= dt;
@@ -768,13 +906,13 @@ class BotAI {
 
         let input = this.idleInput();
 
-        // Backstab dodge: if player is charging a backstab while close, dash sideways
+        // Backstab dodge: only once per engagement — dash sideways when player charges close
         if (target.attackState === 'charged_charging' && distH < 4.5 &&
-            bot.dashCharges >= 2 && !bot.dashing && this.dodgeCooldown <= 0 &&
+            bot.dashCharges >= 2 && !bot.dashing && !this.dodgedThisEngagement &&
             this.fsm !== 'flickstab_dash' && this.fsm !== 'flickstab_release' && this.fsm !== 'aerial_attack') {
             const dodgeDir = Math.random() < 0.5 ? 1 : -1;
             bot.yaw = toTargetYaw + (Math.PI / 2) * dodgeDir;
-            this.dodgeCooldown = 3.0;
+            this.dodgedThisEngagement = true;  // no more dodges this engagement
             this.fsm = 'approach';
             return { ...this.idleInput(), dash: true, chargedAttack: true };
         }
@@ -782,11 +920,21 @@ class BotAI {
         // Auto-throw carried object when in range and not busy with flickstab
         if (bot.carriedObjectId !== null && distH < 8.0 && this.throwTimer <= 0 &&
             this.fsm !== 'flickstab_charge' && this.fsm !== 'flickstab_dash' && this.fsm !== 'flickstab_release') {
-            const pitchToTarget = Math.atan2(target.y - bot.y, distH) + 0.15;
-            this.smoothAim(toTargetYaw, dt);
-            bot.pitch = Math.max(-0.4, Math.min(0.7, pitchToTarget));
-            botThrowObject(bot.id);
-            this.throwTimer = 1.0;
+            if (this.gooGoal) {
+                // Throw goo barrel BEHIND the bot to create a cover wall between bot and player
+                bot.yaw = toTargetYaw + Math.PI;  // face away from player
+                bot.pitch = 0.2;                  // slight upward arc
+                botThrowObject(bot.id);
+                this.gooGoal = false;
+                this.throwTimer = 1.0;
+            } else {
+                // Throw toward player (normal carry)
+                const pitchToTarget = Math.atan2(target.y - bot.y, distH) + 0.15;
+                this.smoothAim(toTargetYaw, dt);
+                bot.pitch = Math.max(-0.4, Math.min(0.7, pitchToTarget));
+                botThrowObject(bot.id);
+                this.throwTimer = 1.0;
+            }
         }
 
         switch (this.fsm) {
@@ -795,27 +943,40 @@ class BotAI {
                 // Always pre-charge so the flickstab fires instantly on trigger
                 input.chargedAttack = true;
 
-                // ── Floor-aware routing ──────────────────────────────────────────
-                // If player is on upper floor and bot is at ground level, route through front door → stairs
-                const needsStairs = (target.y - bot.y) > 2.5 && bot.y < 3.5;
-                // If player is on roof and bot is on upper floor, route to upper staircase
-                const needsRoof = (target.y - bot.y) > 6.0 && bot.y > 2.5 && bot.y < 6.5;
-                if (!this.navWaypoint) {
-                    if (needsStairs) this.navWaypoint = BOT_NAV.frontDoorLeft;
-                    else if (needsRoof) this.navWaypoint = BOT_NAV.upperStairBot;
-                }
-                if (this.navWaypoint) {
-                    const wdx = this.navWaypoint.x - bot.x, wdz = this.navWaypoint.z - bot.z;
-                    if (Math.sqrt(wdx * wdx + wdz * wdz) < 2.0) {
-                        // Reached waypoint; chain to next or clear
-                        if (this.navWaypoint === BOT_NAV.frontDoorLeft) this.navWaypoint = BOT_NAV.groundStairBot;
-                        else this.navWaypoint = null;
+                // ── Waypoint-queue routing ────────────────────────────────────────
+                // Populate queue when empty: vertical (stairs/roof) takes priority,
+                // then horizontal door routing, then direct approach.
+                if (this.navQueue.length === 0) {
+                    const needsStairs = (target.y - bot.y) > 2.5 && bot.y < 3.5;
+                    const needsRoof   = (target.y - bot.y) > 6.0 && bot.y > 2.5 && bot.y < 6.5;
+                    if (needsStairs) {
+                        this.navQueue = [BOT_NAV.frontDoorLeft, BOT_NAV.groundStairBot];
+                    } else if (needsRoof) {
+                        this.navQueue = [BOT_NAV.upperStairBot];
+                    } else {
+                        const route = this.planRoute(bot, target);
+                        if (route) this.navQueue = route;
                     }
                 }
-                // Clear waypoint if bot has climbed up to the target's floor
-                if (this.navWaypoint && Math.abs(bot.y - target.y) < 2.0) this.navWaypoint = null;
-                const aimTarget = this.navWaypoint
-                    ? { x: this.navWaypoint.x, z: this.navWaypoint.z }
+
+                // Advance queue when current waypoint is reached
+                if (this.navQueue.length > 0) {
+                    const wp = this.navQueue[0];
+                    const wdx = wp.x - bot.x, wdz = wp.z - bot.z;
+                    if (Math.sqrt(wdx * wdx + wdz * wdz) < 1.8) this.navQueue.shift();
+                }
+
+                // Clear queue once bot is on the same floor as target
+                if (this.navQueue.length > 0 && Math.abs(bot.y - target.y) < 2.0) {
+                    // Only clear vertical waypoints (stairs), keep door waypoints
+                    if (this.navQueue[0] === BOT_NAV.groundStairBot ||
+                        this.navQueue[0] === BOT_NAV.upperStairBot) {
+                        this.navQueue = [];
+                    }
+                }
+
+                const aimTarget = this.navQueue.length > 0
+                    ? { x: this.navQueue[0].x, z: this.navQueue[0].z }
                     : { x: target.x, z: target.z };
                 this.smoothAim(this.faceToward(aimTarget.x, aimTarget.z), dt);
                 if (distH > 2.5) input.forward = true;
@@ -839,6 +1000,24 @@ class BotAI {
                     input.primaryAttack = true;
                 }
 
+                // Direct backstab: player has back turned — dash in and release immediately
+                if (playerBackExposed && isAggressive && !bot.mantling && distH < 9 && bot.dashCharges >= 1) {
+                    this.fsm = 'direct_backstab';
+                    this.dashFired = false;
+                    this.timer = 0;
+                    break;
+                }
+
+                // Lethal primary dash: player is low enough to die to a primary but out of melee range
+                if (isAggressive && target.hp <= CONFIG.PRIMARY_DAMAGE &&
+                    distH > CONFIG.PRIMARY_RANGE && distH < 9 &&
+                    bot.dashCharges >= 1 && bot.attackState === 'idle') {
+                    this.fsm = 'dash_primary';
+                    this.dashFired = false;
+                    this.timer = 0;
+                    break;
+                }
+
                 // Flickstab trigger: mutual facing, close range, aggressive
                 if (distH < 7.0 && mutualFacing && isAggressive && !bot.mantling && bot.grounded) {
                     this.fsm = 'flickstab_charge';
@@ -847,10 +1026,22 @@ class BotAI {
                     break;
                 }
 
-                // Pick up a carriable to throw
+                // Lethal barrel shot: if an explosive barrel near the player would kill them, go shoot it
+                if (isAggressive && bot.carriedObjectId === null && bot.attackState === 'idle' && distH < 12) {
+                    const lethalBarrel = this.findLethalExplosiveNearTarget(target);
+                    if (lethalBarrel) {
+                        this.barrelTarget = lethalBarrel;
+                        this.fsm = 'barrel_shoot';
+                        this.timer = 0;
+                        break;
+                    }
+                }
+
+                // Pick up a carriable to throw — prefer explosive barrels over random crates
                 if (isAggressive && bot.carriedObjectId === null && distH > 4) {
-                    const c = this.findNearbyCarriable();
-                    if (c && Math.random() < 0.004) {
+                    const explosive = this.findNearbyExplosiveBarrel();
+                    const c = explosive || this.findNearbyCarriable();
+                    if (c && Math.random() < (explosive ? 0.008 : 0.004)) {
                         this.pickupTarget = c;
                         this.fsm = 'pickup';
                         this.timer = 6.0;
@@ -876,18 +1067,21 @@ class BotAI {
                     break;
                 }
 
-                // Kite when low HP
+                // Kite when low HP — reset engagement so bot can dodge again next fight
                 if (isDefensive) {
                     this.fsm = 'kite';
                     this.timer = 3 + Math.random() * 2;
+                    this.coverPos = this.findCoverPosition(target);
+                    this.dodgedThisEngagement = false;
                     break;
                 }
 
-                // Occasional passive pause
+                // Occasional passive pause — also resets engagement dodge
                 if (this.passiveNext <= 0 && distH > 6) {
                     this.fsm = 'passive';
                     this.timer = 1.5 + Math.random() * 3;
                     this.passiveNext = 10 + Math.random() * 14;
+                    this.dodgedThisEngagement = false;
                     break;
                 }
                 break;
@@ -939,6 +1133,8 @@ class BotAI {
                 // Dash complete → spin 180° to face player, then release
                 if (this.dashFired && !bot.dashing && this.timer > 0.05) {
                     bot.yaw = this.faceToward(target.x, target.z);
+                    // Record whether the bot is actually behind the player at release time
+                    this.stabWasBackstab = playerFacingBotDot < -0.3;
                     this.fsm = 'flickstab_release';
                     this.timer = 0;
                     break;
@@ -946,9 +1142,7 @@ class BotAI {
 
                 // Timeout safety
                 if (this.timer > 1.2) {
-                    this.fsm = 'combo';
-                    this.comboPhase = 0;
-                    this.comboTimer = 0;
+                    this.fsm = 'approach';
                     break;
                 }
                 break;
@@ -958,12 +1152,116 @@ class BotAI {
                 // Release: setting chargedAttack = false fires the charged attack server-side
                 input.chargedAttack = false;
                 this.timer += dt;
-                if (this.timer > 0.15) {
-                    // Always follow up with combo (whether backstab hit or not)
-                    this.fsm = 'combo';
-                    this.comboPhase = 0;
-                    this.comboTimer = 0;
+
+                // Wait a couple ticks so attackHitRegistered has been set by processCombat
+                if (this.timer > 0.08) {
+                    const hit = bot.attackHitRegistered;
+
+                    if (hit && !this.stabWasBackstab) {
+                        // Hit the front — follow up with primary + elbow to finish them off
+                        this.fsm = 'combo';
+                        this.comboPhase = 0;
+                        this.comboTimer = 0;
+                    } else if (hit && this.stabWasBackstab) {
+                        // Backstab landed — full damage dealt, re-engage
+                        this.fsm = 'approach';
+                    } else {
+                        // Missed — reposition and try again
+                        if (bot.dashCharges >= 2) {
+                            // Dash back to create space, then charge another flickstab
+                            this.fsm = 'dash_back_reposition';
+                            this.dashFired = false;
+                            this.timer = 0;
+                        } else {
+                            // Low on charges — immediately start charging another attempt
+                            this.fsm = 'flickstab_charge';
+                            this.timer = 0;
+                            this.dashFired = false;
+                        }
+                    }
                 }
+                break;
+            }
+
+            case 'direct_backstab': {
+                // Player has back turned — close the gap with a dash and release the pre-charged backstab
+                input.chargedAttack = true; // keep holding charge
+                this.smoothAim(toTargetYaw, dt);
+                this.timer += dt;
+
+                // Abort if player turns around or timeout
+                if (playerFacingBotDot > 0.1 || this.timer > 2.5 || isDefensive) {
+                    this.fsm = isDefensive ? 'kite' : 'approach';
+                    if (isDefensive) this.timer = 3 + Math.random() * 2;
+                    break;
+                }
+
+                // Dash toward player once to close distance quickly (if not already in range)
+                if (!this.dashFired && distH > 3.0 && bot.dashCharges >= 1) {
+                    input.dash = true;
+                    this.dashFired = true;
+                }
+
+                // Walk in if dash wasn't enough or wasn't needed
+                if (distH > CONFIG.CHARGED_RANGE * 0.85) input.forward = true;
+
+                // Release backstab once in range and charge is full
+                if (distH < CONFIG.CHARGED_RANGE * 0.9 && bot.chargeTimer >= CONFIG.CHARGE_TIME - 0.01) {
+                    this.fsm = 'flickstab_release'; // reuse the release → combo chain
+                    this.timer = 0;
+                }
+                break;
+            }
+
+            case 'dash_primary': {
+                // Player is near-dead — dash in and land a killing primary
+                input.chargedAttack = true; // stay pre-charged in case backstab opens up
+                this.smoothAim(toTargetYaw, dt);
+                this.timer += dt;
+
+                // Abort if player is no longer killable by primary (regen'd) or bot goes defensive
+                if (target.hp > CONFIG.PRIMARY_DAMAGE || isDefensive || this.timer > 2.5) {
+                    this.fsm = isDefensive ? 'kite' : 'approach';
+                    if (isDefensive) this.timer = 3 + Math.random() * 2;
+                    break;
+                }
+
+                // Dash toward player once to close the gap
+                if (!this.dashFired && distH > CONFIG.PRIMARY_RANGE && bot.dashCharges >= 1) {
+                    input.dash = true;
+                    this.dashFired = true;
+                }
+
+                // Walk in if still not close enough
+                if (distH > CONFIG.PRIMARY_RANGE * 0.9) input.forward = true;
+
+                // Fire primary when in range
+                if (distH <= CONFIG.PRIMARY_RANGE && bot.attackState === 'idle' && bot.primaryCooldown <= 0) {
+                    input.primaryAttack = true;
+                    this.fsm = 'approach';
+                }
+                break;
+            }
+
+            case 'dash_back_reposition': {
+                // Missed the stab — dash away to create space, then immediately charge another flickstab
+                input.chargedAttack = true; // start building charge during reposition
+                this.timer += dt;
+
+                if (!this.dashFired) {
+                    bot.yaw = toTargetYaw + Math.PI; // face away from player
+                    input.dash = true;
+                    this.dashFired = true;
+                }
+
+                // Once dash is done (or after brief delay), go straight into charging another stab
+                if (this.dashFired && !bot.dashing && this.timer > 0.1) {
+                    this.fsm = 'flickstab_charge';
+                    this.timer = 0;
+                    this.dashFired = false;
+                }
+
+                if (this.timer > 1.5) { this.fsm = 'approach'; } // safety timeout
                 break;
             }
 
@@ -997,16 +1295,41 @@ class BotAI {
 
             case 'kite': {
                 input.chargedAttack = true; // stay armed while kiting
-                this.smoothAim(toTargetYaw, dt);
                 this.timer -= dt;
-
-                if (distH < 7) input.backward = true;
-                else if (distH > 14) this.fsm = 'approach'; // don't run forever
 
                 // Escape dash: player closing in fast — dash directly away
                 if (distH < 3.5 && bot.dashCharges >= 2 && !bot.dashing) {
                     bot.yaw = toTargetYaw + Math.PI; // face away
                     return { ...this.idleInput(), dash: true, chargedAttack: true };
+                }
+
+                // ── Goo barrel cover: pick one up and throw it behind bot as a wall ──
+                if (bot.carriedObjectId === null && !this.gooGoal && Math.random() < 0.003) {
+                    const goo = this.findGooBarrelNearBot();
+                    if (goo) {
+                        this.pickupTarget = goo;
+                        this.gooGoal = true;
+                        this.fsm = 'pickup';
+                        this.timer = 5.0;
+                        break;
+                    }
+                }
+
+                // ── Cover-aware movement: sidestep toward cover object ──
+                if (this.coverPos) {
+                    const cdx = this.coverPos.x - bot.x, cdz = this.coverPos.z - bot.z;
+                    const coverDist = Math.sqrt(cdx * cdx + cdz * cdz);
+                    if (coverDist > 1.5) {
+                        this.smoothAim(this.faceToward(this.coverPos.x, this.coverPos.z), dt);
+                        input.forward = true;
+                    } else {
+                        this.coverPos = null; // reached cover — switch to normal retreat
+                    }
+                } else {
+                    // Normal retreat: face player, back away
+                    this.smoothAim(toTargetYaw, dt);
+                    if (distH < 7) input.backward = true;
+                    else if (distH > 14) this.fsm = 'approach'; // don't run forever
                 }
 
                 // Self-defense poke if they get too close
@@ -1031,8 +1354,8 @@ class BotAI {
                     if (bot.vy > 3) { this.padActive = false; this.padPos = null; }
                 }
 
-                // Exit after fixed timer only (not HP-based — just a brief reposition)
-                if (this.timer <= 0) this.fsm = 'approach';
+                // Exit after fixed timer only
+                if (this.timer <= 0) { this.coverPos = null; this.fsm = 'approach'; }
                 break;
             }
 
@@ -1190,6 +1513,44 @@ class BotAI {
                 }
                 break;
             }
+
+            case 'barrel_shoot': {
+                // Bot approaches an explosive barrel near the player and shoots it for burst damage
+                const bt = this.barrelTarget;
+                if (!bt || !bt.alive || bt.carriedBy != null) {
+                    // Barrel gone — abort
+                    this.barrelTarget = null;
+                    this.fsm = 'approach';
+                    break;
+                }
+
+                this.timer += dt;
+                if (this.timer > 4.0) { this.barrelTarget = null; this.fsm = 'approach'; break; }
+
+                // Move toward barrel
+                const bdx = bt.x - bot.x, bdz = bt.z - bot.z;
+                const bDist = Math.sqrt(bdx * bdx + bdz * bdz);
+                const barrelYaw = this.faceToward(bt.x, bt.z);
+                this.smoothAim(barrelYaw, dt);
+                if (bDist > CONFIG.PRIMARY_RANGE * 0.9) {
+                    input.forward = true;
+                    // Unstick jump if needed
+                    if (bot.grounded && this.jumpCooldown <= 0 && this.stuckTimer >= 0.5) {
+                        input.jump = true; this.jumpCooldown = 0.9; this.stuckTimer = 0;
+                    }
+                    if (!bot.grounded && bot.vy <= 0) input.jump = true;
+                } else {
+                    // In range — check facing and fire
+                    const nx = bdx / bDist, nz = bdz / bDist;
+                    const fwdDot = (-Math.sin(bot.yaw)) * nx + (-Math.cos(bot.yaw)) * nz;
+                    if (fwdDot > 0.8 && bot.attackState === 'idle' && bot.primaryCooldown <= 0) {
+                        input.primaryAttack = true;
+                        this.barrelTarget = null;
+                        this.fsm = 'approach';
+                    }
+                }
+                break;
+            }
         }
 
         return input;
@@ -1202,9 +1563,9 @@ function spawnBot() {
     bot.isBot = true;
     bot.ws = null;
     bot.ready = true;
-    const spawnIdx = players.size; // human already in Map, bot goes second
-    bot.x = SPAWN_POINTS[spawnIdx % 2].x;
-    bot.z = SPAWN_POINTS[spawnIdx % 2].z;
+    const spawnIdx = players.size; // all current players (humans + prior bots) = next spawn slot
+    bot.x = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].x;
+    bot.z = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].z;
     bot.yaw = spawnIdx === 0 ? 0 : Math.PI;
     bot.y = CONFIG.PLAYER_HEIGHT / 2;
     bot.botAI = new BotAI(bot);
@@ -1219,6 +1580,25 @@ let gameActive = false;
 let killGoal = 10;
 let killFeed = [];
 let nextPlayerId = 1;
+let playerCount = 0; // tracks connected human count for display numbers
+
+// ─── Lobby state ───
+let lobbyHostId = null;
+let lobbyConfig = { humanSlots: 1, botCount: 1, killGoal: 10 };
+
+function broadcastLobbyState() {
+    const playerList = Array.from(players.values())
+        .filter(p => !p.isBot)
+        .map(p => ({ id: p.id, displayId: p.displayId, isHost: p.id === lobbyHostId }));
+    broadcast({
+        type: 'lobby_state',
+        hostId: lobbyHostId,
+        humanSlots: lobbyConfig.humanSlots,
+        botCount: lobbyConfig.botCount,
+        killGoal: lobbyConfig.killGoal,
+        players: playerList,
+    });
+}
 
 const app = express();
 app.use(express.static(join(__dirname, 'public'), {
@@ -1245,6 +1625,8 @@ setInterval(() => {
 
 function handleDisconnect(playerId) {
     if (!players.has(playerId)) return; // already cleaned up
+    const leavingPlayer = players.get(playerId);
+    if (!leavingPlayer.isBot) playerCount--;
     console.log(`[Server] Player ${playerId} disconnected`);
     players.delete(playerId);
 
@@ -1255,7 +1637,7 @@ function handleDisconnect(playerId) {
         JUMP_PADS.delete(playerId);
     }
 
-    // In vs AI mode, also remove the bot when the human leaves
+    // Remove all bots (game reset on any disconnect)
     const botIds = Array.from(players.values()).filter(p => p.isBot).map(p => p.id);
     for (const botId of botIds) {
         if (JUMP_PADS.has(botId)) {
@@ -1266,10 +1648,22 @@ function handleDisconnect(playerId) {
         players.delete(botId);
     }
 
-    // Always end the game — 1v1 with no opponent is pointless
+    // Always end the game when someone disconnects
     gameActive = false;
 
-    // Reset remaining players so they can ready-up for a fresh game
+    // If host left, promote next human player to host
+    if (playerId === lobbyHostId) {
+        const nextHuman = Array.from(players.values()).find(p => !p.isBot);
+        if (nextHuman) {
+            lobbyHostId = nextHuman.id;
+            nextHuman.ws?.send(JSON.stringify({ type: 'promoted_to_host' }));
+            console.log(`[Server] Player ${nextHuman.id} promoted to host`);
+        } else {
+            lobbyHostId = null;
+        }
+    }
+
+    // Reset remaining players so they can start a fresh game
     for (const p of players.values()) {
         p.ready = false;
         p.alive = true;
@@ -1281,30 +1675,49 @@ function handleDisconnect(playerId) {
         p.sliding = false;
         p.dashing = false;
         p.dashCharges = CONFIG.DASH_CHARGES;
+        p.dashRechargeTimer = 0;
         p.kills = 0;
         p.deaths = 0;
     }
 
     killFeed = [];
     broadcast({ type: 'player_left', playerId });
+
+    // If lobby is now empty, reset host
+    const remainingHumans = Array.from(players.values()).filter(p => !p.isBot);
+    if (remainingHumans.length === 0) {
+        lobbyHostId = null;
+    }
+
+    broadcastLobbyState();
     console.log(`[Server] Game reset — waiting for players to reconnect`);
 }
 
 wss.on('connection', (ws) => {
-    if (players.size >= 2) {
-        ws.send(JSON.stringify({ type: 'full', message: 'Server is full (2 players max)' }));
+    // Count only human (non-bot) players
+    const humanCount = Array.from(players.values()).filter(p => !p.isBot).length;
+    if (gameActive || humanCount >= lobbyConfig.humanSlots) {
+        ws.send(JSON.stringify({ type: 'full', message: 'Lobby is full or game in progress.' }));
         ws.close();
         return;
     }
 
     const playerId = nextPlayerId++;
+    playerCount++;
     const player = new ServerPlayer(playerId);
-    const spawnIdx = players.size;
-    player.x = SPAWN_POINTS[spawnIdx % 2].x;
-    player.z = SPAWN_POINTS[spawnIdx % 2].z;
+    player.displayId = playerCount; // stable display number for this session
+    const spawnIdx = humanCount; // use current human count before adding
+    player.x = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].x;
+    player.z = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].z;
     player.yaw = spawnIdx === 0 ? 0 : Math.PI;
     player.ws = ws;
     players.set(playerId, player);
+
+    // First human player becomes host
+    const isHost = lobbyHostId === null;
+    if (isHost) {
+        lobbyHostId = playerId;
+    }
 
     // Heartbeat tracking
     ws.isAlive = true;
@@ -1312,7 +1725,10 @@ wss.on('connection', (ws) => {
 
     console.log(`[Server] Player ${playerId} connected (${players.size} players)`);
 
-    ws.send(JSON.stringify({ type: 'welcome', playerId }));
+    ws.send(JSON.stringify({ type: 'welcome', playerId, displayId: player.displayId, isHost }));
+
+    // Broadcast updated lobby state to all (including the new player)
+    broadcastLobbyState();
 
     ws.on('message', (data) => {
         try {
@@ -1326,6 +1742,11 @@ wss.on('connection', (ws) => {
     ws.on('close', () => handleDisconnect(playerId));
     ws.on('error', () => handleDisconnect(playerId));
 });
+
+function getDisplayId(playerId) {
+    const p = players.get(playerId);
+    return p ? (p.displayId ?? playerId) : playerId;
+}
 
 function broadcast(msg, excludeId = null) {
     const data = JSON.stringify(msg);
@@ -1346,22 +1767,46 @@ function handleMessage(playerId, msg) {
             player.lastProcessedInput = msg.seq;
             break;
 
-        case 'ready':
-            player.ready = true;
-            killGoal = msg.killGoal || 10;
-            console.log(`[Server] Player ${playerId} ready (goal: ${killGoal})`);
-
-            if (msg.gameMode === 'vsai') {
-                const humanCount = Array.from(players.values()).filter(p => !p.isBot).length;
-                const existingBot = Array.from(players.values()).find(p => p.isBot);
-                if (humanCount === 1 && !existingBot) {
-                    // First time in vs AI: spawn the bot
-                    spawnBot();
-                } else if (existingBot) {
-                    // Rematch: re-ready the existing bot and reset its AI
-                    existingBot.ready = true;
-                    if (existingBot.botAI) existingBot.botAI.reset();
+        case 'lobby_config':
+            // Only host can change lobby settings
+            if (playerId !== lobbyHostId) break;
+            if (msg.humanSlots !== undefined) {
+                lobbyConfig.humanSlots = Math.max(1, Math.min(4, msg.humanSlots));
+            }
+            if (msg.botCount !== undefined) {
+                lobbyConfig.botCount = Math.max(0, Math.min(3, msg.botCount));
+                // Clamp total to 4
+                if (lobbyConfig.humanSlots + lobbyConfig.botCount > 4) {
+                    lobbyConfig.botCount = 4 - lobbyConfig.humanSlots;
                 }
+            }
+            if (msg.killGoal !== undefined) {
+                lobbyConfig.killGoal = Math.max(1, Math.min(100, msg.killGoal));
+            }
+            console.log(`[Server] Host updated config: ${lobbyConfig.humanSlots}H + ${lobbyConfig.botCount}B, goal ${lobbyConfig.killGoal}`);
+            broadcastLobbyState();
+            break;
+
+        case 'start_game':
+            // Only host can start
+            if (playerId !== lobbyHostId) break;
+            if (gameActive) break;
+            killGoal = lobbyConfig.killGoal;
+            console.log(`[Server] Host starting game (goal: ${killGoal})`);
+
+            // Remove any leftover bots from previous game
+            for (const [pid, p] of players) {
+                if (p.isBot) players.delete(pid);
+            }
+
+            // Mark all humans ready
+            for (const p of players.values()) {
+                if (!p.isBot) p.ready = true;
+            }
+
+            // Spawn requested number of bots
+            for (let i = 0; i < lobbyConfig.botCount; i++) {
+                spawnBot();
             }
 
             checkGameStart();
@@ -1493,8 +1938,8 @@ function checkGameStart() {
         gameActive = true;
         let idx = 0;
         for (const p of players.values()) {
-            p.x = SPAWN_POINTS[idx % 2].x;
-            p.z = SPAWN_POINTS[idx % 2].z;
+            p.x = SPAWN_POINTS[idx % SPAWN_POINTS.length].x;
+            p.z = SPAWN_POINTS[idx % SPAWN_POINTS.length].z;
             p.yaw = idx === 0 ? 0 : Math.PI;
             p.y = CONFIG.PLAYER_HEIGHT / 2;
             p.vx = 0; p.vy = 0; p.vz = 0;
@@ -1638,7 +2083,7 @@ function processPlayerInput(player, input, dt) {
         player.dashTime = 0;
         player.dashCharges--;
         player.dashInputConsumed = true;
-        if (player.dashCooldown <= 0) player.dashCooldown = CONFIG.DASH_COOLDOWN;
+        player.dashRechargeTimer = CONFIG.DASH_COOLDOWN; // shared timer resets on every dash use
 
         const cosP = Math.cos(player.pitch);
         const dashDirX = -Math.sin(player.yaw) * cosP;
@@ -1649,12 +2094,12 @@ function processPlayerInput(player, input, dt) {
     }
     if (!input.dash) player.dashInputConsumed = false;
 
-    // Recharge one charge at a time, every DASH_COOLDOWN seconds
-    if (player.dashCharges < CONFIG.DASH_CHARGES && player.dashCooldown > 0) {
-        player.dashCooldown -= dt;
-        if (player.dashCooldown <= 0) {
-            player.dashCharges++;
-            if (player.dashCharges < CONFIG.DASH_CHARGES) player.dashCooldown = CONFIG.DASH_COOLDOWN;
+    // Shared recharge timer — when it expires all spent charges come back at once
+    if (player.dashCharges < CONFIG.DASH_CHARGES && player.dashRechargeTimer > 0) {
+        player.dashRechargeTimer -= dt;
+        if (player.dashRechargeTimer <= 0) {
+            player.dashCharges = CONFIG.DASH_CHARGES;
+            player.dashRechargeTimer = 0;
         }
     }
 
@@ -1952,7 +2397,7 @@ function processCombat(player, input) {
             target.deaths++;
             player.kills++;
             killFeed.push({ killerId: player.id, victimId: target.id, time: 5 });
-            broadcast({ type: 'kill_feed', killerId: player.id, victimId: target.id, weapon: player.attackState });
+            broadcast({ type: 'kill_feed', killerId: player.id, killerDisplayId: getDisplayId(player.id), victimId: target.id, victimDisplayId: getDisplayId(target.id), weapon: player.attackState });
         }
         broadcast({ type: 'hit_confirm', attackerId: player.id, targetId: hitPlayerId,
             damage: hitDamage, backstab: isBackstab });
@@ -1975,7 +2420,7 @@ function updateGame(dt) {
                 player.y = CONFIG.PLAYER_HEIGHT / 2;
                 player.vx = 0; player.vy = 0; player.vz = 0;
                 player.dashCharges = CONFIG.DASH_CHARGES;
-                player.dashCooldown = 0;
+                player.dashRechargeTimer = 0;
                 player.dashInputConsumed = false;
                 player.carriedObjectId = null;
                 player.attackState = 'idle';
@@ -2057,23 +2502,24 @@ function updateGame(dt) {
         }
     }
 
-    let scores = {};
-    for (const p of players.values()) {
-        scores[p.id] = { kills: p.kills, deaths: p.deaths };
-    }
+    const scores = Array.from(players.values()).map(p => ({ id: p.id, displayId: p.displayId ?? p.id, kills: p.kills, deaths: p.deaths }));
 
     for (const p of players.values()) {
         if (p.kills >= killGoal) {
             gameActive = false;
             broadcast({ type: 'game_over', winnerId: p.id, scores });
             console.log(`[Server] Game over! Winner: Player ${p.id}`);
-            for (const p of players.values()) {
-                p.ready = false;
+            // Remove bots, reset human players to lobby
+            const botIds2 = Array.from(players.values()).filter(b => b.isBot).map(b => b.id);
+            for (const bid of botIds2) players.delete(bid);
+            for (const p2 of players.values()) {
+                p2.ready = false;
             }
             for (const pad of JUMP_PADS.values()) {
                 broadcast({ type: 'jumppad_removed', id: pad.id });
             }
             JUMP_PADS.clear();
+            broadcastLobbyState();
             break;
         }
     }

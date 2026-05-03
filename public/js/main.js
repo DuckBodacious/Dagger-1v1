@@ -25,6 +25,11 @@ let prevLocalAlive = true;
 let jumpPadCooldown = 0;
 let jumpPads = null;
 
+// ─── Lobby State ───
+let isHost = false;
+let localDisplayId = 1;
+let lobbyState = { humanSlots: 1, botCount: 1, killGoal: 10, players: [] };
+
 // ─── Carry State ───
 let carriedObjectId = null;
 let carriedObjectMesh = null;
@@ -52,11 +57,14 @@ document.addEventListener('click', initAudio);
 document.addEventListener('keydown', initAudio);
 
 // ─── Network Callbacks ───
-network.onConnected = (playerId) => {
-    console.log(`[Client] Connected as Player ${playerId}`);
+network.onConnected = (playerId, hostFlag, displayId) => {
+    localDisplayId = displayId ?? playerId;
+    console.log(`[Client] Connected as Player ${localDisplayId} (host=${hostFlag})`);
     localPlayer = new PlayerState(playerId);
+    isHost = !!hostFlag;
     hud.showConnecting(false);
     hud.showLobby(true);
+    updateLobbyUI();
 };
 
 network.onGameState = (state) => {
@@ -104,6 +112,7 @@ network.onGameState = (state) => {
         localPlayer.kills = serverLocal.kills;
         localPlayer.deaths = serverLocal.deaths;
         localPlayer.dashCharges = serverLocal.dashCharges;
+        localPlayer.dashRechargeTimer = serverLocal.dashRechargeTimer ?? 0;
         localPlayer.attackState = serverLocal.attackState;
         localPlayer.chargeTimer = serverLocal.chargeTimer;
         localPlayer.regenActive = serverLocal.regenActive || false;
@@ -200,6 +209,16 @@ network.onGameState = (state) => {
     }
 };
 
+network.onLobbyState = (msg) => {
+    lobbyState = msg;
+    updateLobbyUI();
+};
+
+network.onPromotedToHost = () => {
+    isHost = true;
+    updateLobbyUI();
+};
+
 network.onPlayerJoined = (playerId) => {
     console.log(`[Client] Player ${playerId} joined`);
 };
@@ -215,8 +234,7 @@ network.onPlayerLeft = (playerId) => {
         hud.showDeathScreen(false, 0);
         hud.showLobby(true);
         document.exitPointerLock();
-        const btn = document.getElementById('ready-btn');
-        if (btn) { btn.textContent = 'Ready'; btn.disabled = false; }
+        updateLobbyUI();
     }
 };
 
@@ -245,8 +263,8 @@ network.onHitConfirm = (msg) => {
 };
 
 network.onKillFeed = (msg) => {
-    const killerName = `Player ${msg.killerId}`;
-    const victimName = `Player ${msg.victimId}`;
+    const killerName = `Player ${msg.killerDisplayId ?? msg.killerId}`;
+    const victimName = `Player ${msg.victimDisplayId ?? msg.victimId}`;
     hud.addKillFeedEntry(killerName, victimName, msg.weapon);
     // Play kill confirm if we got the kill
     if (localPlayer && msg.killerId === localPlayer.id) {
@@ -301,24 +319,131 @@ network.handleMessage = (msg) => {
     if (msg.type === 'game_over' && localPlayer) {
         hud.showGameOver(msg.winnerId, localPlayer.id, msg.scores);
     }
+    if (msg.type === 'lobby_state') {
+        // Re-enable start button if it was disabled
+        const btn = document.getElementById('start-btn');
+        if (btn) { btn.textContent = 'START GAME'; btn.disabled = false; }
+    }
 };
 
 // ─── Lobby UI ───
-document.getElementById('ready-btn').addEventListener('click', () => {
-    const goal = parseInt(document.getElementById('kill-goal').value) || 10;
-    const gameMode = document.getElementById('game-mode').value || 'multiplayer';
-    network.sendReady(goal, gameMode);
-    const btn = document.getElementById('ready-btn');
-    if (gameMode === 'vsai') {
-        btn.textContent = 'Starting vs AI...';
+
+function updateLobbyUI() {
+    const hostConfig = document.getElementById('host-config');
+    const waitingPanel = document.getElementById('waiting-panel');
+    const startBtn = document.getElementById('start-btn');
+
+    if (isHost) {
+        hostConfig.style.display = 'block';
+        waitingPanel.style.display = 'none';
+        startBtn.style.display = 'inline-block';
+
+        // Sync counters to current lobbyState
+        document.getElementById('humans-display').textContent = lobbyState.humanSlots ?? 1;
+        document.getElementById('bots-display').textContent = lobbyState.botCount ?? 1;
+        document.getElementById('goal-display').textContent = lobbyState.killGoal ?? 10;
+
+        // Player list for host
+        const list = document.getElementById('lobby-player-list');
+        list.innerHTML = '';
+        if (lobbyState.players) {
+            for (const p of lobbyState.players) {
+                const chip = document.createElement('div');
+                chip.className = 'lobby-player-chip' +
+                    (p.id === localPlayer?.id ? ' is-you' : '') +
+                    (p.isHost ? ' is-host' : '');
+                chip.textContent = p.id === localPlayer?.id
+                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
+                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
+                list.appendChild(chip);
+            }
+        }
     } else {
-        btn.textContent = 'Waiting for opponent...';
+        hostConfig.style.display = 'none';
+        waitingPanel.style.display = 'block';
+        startBtn.style.display = 'none';
+
+        // Show config summary for non-host
+        const cfgDisplay = document.getElementById('lobby-config-display');
+        cfgDisplay.textContent =
+            `${lobbyState.humanSlots ?? '?'} Players  ·  ${lobbyState.botCount ?? '?'} Bots  ·  First to ${lobbyState.killGoal ?? '?'} kills`;
+
+        // Player list for non-host
+        const list = document.getElementById('lobby-player-list-nonhost');
+        list.innerHTML = '';
+        if (lobbyState.players) {
+            for (const p of lobbyState.players) {
+                const chip = document.createElement('div');
+                chip.className = 'lobby-player-chip' +
+                    (p.id === localPlayer?.id ? ' is-you' : '') +
+                    (p.isHost ? ' is-host' : '');
+                chip.textContent = p.id === localPlayer?.id
+                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
+                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
+                list.appendChild(chip);
+            }
+        }
     }
-    btn.disabled = true;
+}
+
+// Counter buttons (host only)
+function clampLobbyConfig() {
+    const maxBots = 4 - lobbyState.humanSlots;
+    if (lobbyState.botCount > maxBots) lobbyState.botCount = Math.max(0, maxBots);
+}
+
+document.getElementById('humans-minus')?.addEventListener('click', () => {
+    if (!isHost) return;
+    lobbyState.humanSlots = Math.max(1, (lobbyState.humanSlots || 1) - 1);
+    clampLobbyConfig();
+    network.sendLobbyConfig({ humanSlots: lobbyState.humanSlots, botCount: lobbyState.botCount });
+    updateLobbyUI();
+});
+document.getElementById('humans-plus')?.addEventListener('click', () => {
+    if (!isHost) return;
+    const newVal = Math.min(4, (lobbyState.humanSlots || 1) + 1);
+    if (newVal + (lobbyState.botCount || 0) > 4) return; // total cap
+    lobbyState.humanSlots = newVal;
+    network.sendLobbyConfig({ humanSlots: lobbyState.humanSlots });
+    updateLobbyUI();
+});
+document.getElementById('bots-minus')?.addEventListener('click', () => {
+    if (!isHost) return;
+    lobbyState.botCount = Math.max(0, (lobbyState.botCount || 0) - 1);
+    network.sendLobbyConfig({ botCount: lobbyState.botCount });
+    updateLobbyUI();
+});
+document.getElementById('bots-plus')?.addEventListener('click', () => {
+    if (!isHost) return;
+    const newBots = Math.min(3, (lobbyState.botCount || 0) + 1);
+    if ((lobbyState.humanSlots || 1) + newBots > 4) return; // total cap
+    lobbyState.botCount = newBots;
+    network.sendLobbyConfig({ botCount: lobbyState.botCount });
+    updateLobbyUI();
+});
+document.getElementById('goal-minus')?.addEventListener('click', () => {
+    if (!isHost) return;
+    lobbyState.killGoal = Math.max(1, (lobbyState.killGoal || 10) - 1);
+    network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
+    updateLobbyUI();
+});
+document.getElementById('goal-plus')?.addEventListener('click', () => {
+    if (!isHost) return;
+    lobbyState.killGoal = Math.min(100, (lobbyState.killGoal || 10) + 1);
+    network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
+    updateLobbyUI();
+});
+
+// Start button (host only)
+document.getElementById('start-btn')?.addEventListener('click', () => {
+    if (!isHost) return;
+    network.sendStartGame();
+    const btn = document.getElementById('start-btn');
+    if (btn) { btn.textContent = 'Starting...'; btn.disabled = true; }
 });
 
 // Volume slider
-document.getElementById('volume-slider').addEventListener('input', (e) => {
+document.getElementById('volume-slider')?.addEventListener('input', (e) => {
     audio.setMasterVolume(parseInt(e.target.value) / 100);
 });
 
