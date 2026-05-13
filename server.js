@@ -662,14 +662,17 @@ function botPlaceJumpPad(botId) {
 
 // Nav waypoints for floor-aware routing through the building's staircases and doors
 const BOT_NAV = {
-    // Ground-floor door approaches (outside → inside)
-    frontDoorLeft:  { x: -2.0, z: -4.3 },  // left front door (outside)
-    frontDoorRight: { x:  2.0, z: -4.3 },  // right front door (outside)
-    interiorDoor:   { x: -0.4, z:  0.8 },  // interior dividing wall door
-    backDoor:       { x:  0.0, z:  4.3 },  // back door (inside → outside)
+    // Ground-floor door approaches
+    frontDoorLeft:      { x: -2.0, z: -4.3 },
+    frontDoorRight:     { x:  2.0, z: -4.3 },
+    interiorDoor:       { x: -0.4, z:  0.8 },
+    backDoor:           { x:  0.0, z:  4.3 },
     // Staircase routing
-    groundStairBot: { x: -5.5, z: -2.0 },  // base of ground→upper staircase
-    upperStairBot:  { x:  5.5, z:  2.5 },  // base of upper→roof staircase
+    groundStairBot:     { x: -5.5, z: -2.0 },
+    upperStairBot:      { x:  5.5, z:  2.5 },
+    // Window / parapet exit — bot aims here then jumps to mantle out
+    // Works for both upper-floor front window (sill at y≈4.5) and roof parapet (y≈8.0)
+    exitBuildingFront:  { x:  0.0, z: -4.8, jump: true },
 };
 
 class BotAI {
@@ -775,11 +778,27 @@ class BotAI {
         return nearest;
     }
 
-    // Plan a ground-floor route through building doors when walls block the direct path.
-    // Returns an ordered array of BOT_NAV waypoints, or null if no door routing needed.
+    // Plan a route through building doors/windows when walls block the direct path.
+    // Returns an ordered array of BOT_NAV waypoints, or null if no routing needed.
     planRoute(bot, target) {
-        // Only applies at ground level; vertical routing handled separately
-        if (bot.y > 3.5 || target.y > 3.5) return null;
+        const FH = CONFIG.FLOOR_HEIGHT; // 3.5
+
+        // ── Upper floor → enemy is outside at ground level: exit through front window ──
+        if (bot.y > FH - 0.3 && bot.y < FH * 2 - 0.3 && target.y < FH - 0.3) {
+            // Only if target is outside the building (not just on the ground floor inside)
+            const BZ_FRONT = -4.7, BZ_BACK = 4.7;
+            if (target.z < BZ_FRONT || target.z > BZ_BACK) {
+                return [BOT_NAV.exitBuildingFront];
+            }
+        }
+
+        // ── Roof → enemy not on roof: mantle off front parapet ──
+        if (bot.y >= FH * 2 - 0.3 && target.y < FH * 2 - 0.3) {
+            return [BOT_NAV.exitBuildingFront];
+        }
+
+        // Ground-floor only below this point
+        if (bot.y > FH - 0.3 || target.y > FH - 0.3) return null;
 
         // Building X bounds — if both are well outside, no walls to worry about
         const BX0 = -6.5, BX1 = 6.5;
@@ -963,12 +982,27 @@ class BotAI {
                 if (this.navQueue.length > 0) {
                     const wp = this.navQueue[0];
                     const wdx = wp.x - bot.x, wdz = wp.z - bot.z;
-                    if (Math.sqrt(wdx * wdx + wdz * wdz) < 1.8) this.navQueue.shift();
+                    const wpDistH = Math.sqrt(wdx * wdx + wdz * wdz);
+
+                    if (wp.jump) {
+                        // Exit waypoint: clear only once the bot has actually left the building
+                        // (z past the front wall, or dropped back to ground level)
+                        const FH = CONFIG.FLOOR_HEIGHT;
+                        if (bot.z < -5.3 || (bot.y < FH - 0.5 && bot.z < -3.0)) {
+                            this.navQueue.shift();
+                        }
+                        // Commit jump early — start jumping 3.5m before the wall
+                        if (wpDistH < 3.5 && bot.grounded && this.jumpCooldown <= 0) {
+                            input.jump = true;
+                            this.jumpCooldown = 0.4;
+                        }
+                    } else {
+                        if (wpDistH < 1.8) this.navQueue.shift();
+                    }
                 }
 
-                // Clear queue once bot is on the same floor as target
+                // Clear stair waypoints once bot is on the same floor as target
                 if (this.navQueue.length > 0 && Math.abs(bot.y - target.y) < 2.0) {
-                    // Only clear vertical waypoints (stairs), keep door waypoints
                     if (this.navQueue[0] === BOT_NAV.groundStairBot ||
                         this.navQueue[0] === BOT_NAV.upperStairBot) {
                         this.navQueue = [];
@@ -981,6 +1015,27 @@ class BotAI {
                 this.smoothAim(this.faceToward(aimTarget.x, aimTarget.z), dt);
                 if (distH > 2.5) input.forward = true;
 
+                // ── Corner stuck: reroute through nearest door ───────────────────
+                // Check this BEFORE the jump/strafe unstick so stuckTimer isn't zeroed prematurely
+                if (this.stuckTimer >= 1.5) {
+                    const FH = CONFIG.FLOOR_HEIGHT;
+                    const inBuilding = bot.x > -7.0 && bot.x < 7.0 &&
+                                       bot.z > -5.2 && bot.z < 5.2 &&
+                                       bot.y < FH * 2;
+                    if (inBuilding) {
+                        const doors = [BOT_NAV.frontDoorLeft, BOT_NAV.frontDoorRight,
+                                       BOT_NAV.interiorDoor, BOT_NAV.backDoor];
+                        let best = doors[0], bestDist = Infinity;
+                        for (const d of doors) {
+                            const dx = d.x - bot.x, dz = d.z - bot.z;
+                            const dist = Math.sqrt(dx * dx + dz * dz);
+                            if (dist < bestDist) { bestDist = dist; best = d; }
+                        }
+                        this.navQueue = [best]; // override whatever was queued
+                        this.stuckTimer = 0;
+                    }
+                }
+
                 // ── Unstick: jump first, then lateral strafe if still stuck ──────
                 if (this.stuckStrafeTimer > 0) {
                     this.stuckStrafeTimer -= dt;
@@ -989,8 +1044,8 @@ class BotAI {
                 } else if (bot.grounded && this.jumpCooldown <= 0 && this.stuckTimer >= 0.5) {
                     input.jump = true;
                     this.jumpCooldown = 0.9;
-                    if (this.stuckTimer >= 1.5) this.stuckStrafeTimer = 0.5; // stuck too long — also strafe
-                    this.stuckTimer = 0;
+                    if (this.stuckTimer >= 1.0) this.stuckStrafeTimer = 0.5; // stuck too long — also strafe
+                    // Do NOT reset stuckTimer here — let it keep accumulating to hit 1.5s threshold
                 }
                 // Hold jump while airborne and descending → triggers mantle
                 if (!bot.grounded && bot.vy <= 0) input.jump = true;
@@ -1065,6 +1120,24 @@ class BotAI {
                     this.fsm = 'jumppad';
                     this.timer = 0;
                     break;
+                }
+
+                // Own pad on cooldown — seek a pad placed by another player to reach the roof
+                if (target.y > 6.5 && bot.y < 4 && bot.jumpPadCooldown > 0 && distToBuilding < 7) {
+                    let nearestPad = null;
+                    let nearestPadDist = 20;
+                    for (const [ownerId, pad] of JUMP_PADS) {
+                        if (ownerId === bot.id) continue;
+                        const dx = pad.x - bot.x, dz = pad.z - bot.z;
+                        const dist = Math.sqrt(dx * dx + dz * dz);
+                        if (dist < nearestPadDist) {
+                            nearestPadDist = dist;
+                            nearestPad = pad;
+                        }
+                    }
+                    if (nearestPad && this.navQueue.length === 0) {
+                        this.navQueue = [{ x: nearestPad.x, z: nearestPad.z }];
+                    }
                 }
 
                 // Kite when low HP — reset engagement so bot can dodge again next fight

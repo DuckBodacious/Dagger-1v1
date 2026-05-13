@@ -118,11 +118,13 @@ network.onGameState = (state) => {
         localPlayer.regenActive = serverLocal.regenActive || false;
 
         // Server reconciliation for position.
-        // Server now tracks mantling too — if neither client nor server is mantling, apply position.
-        // If server says mantling, snap to server mantle state. If client is mantling but server isn't
-        // yet (input lag), keep client position so the mantle feels smooth.
+        // Mantle start/target/timer are LOCAL-ONLY state — not serialized.
+        // If we snap to server position mid-mantle the client still has the old mantleTimer=0
+        // and mantleTargetY=0, so processMantling immediately snaps to y=0.9 (floor) — the
+        // "teleport to bottom" bug. Fix: skip position reconciliation while EITHER side is
+        // mantling. Each side runs its own deterministic mantle; positions re-sync after.
         const serverMantling = serverLocal.mantling || false;
-        if (!localPlayer.mantling || serverMantling) {
+        if (!localPlayer.mantling && !serverMantling) {
             localPlayer.x = serverLocal.x;
             localPlayer.y = serverLocal.y;
             localPlayer.z = serverLocal.z;
@@ -132,7 +134,7 @@ network.onGameState = (state) => {
             localPlayer.grounded = serverLocal.grounded;
             localPlayer.sliding = serverLocal.sliding;
             localPlayer.dashing = serverLocal.dashing;
-            localPlayer.mantling = serverMantling;
+            localPlayer.mantling = false;
         }
         localPlayer.yaw = serverLocal.yaw;
         localPlayer.pitch = serverLocal.pitch;
