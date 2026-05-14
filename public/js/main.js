@@ -130,22 +130,17 @@ network.onGameState = (state) => {
             const dz = serverLocal.z - localPlayer.z;
             const posError = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-            // Only hard-snap if the error is large enough to be a real desync.
-            // Small errors are smoothed toward the server position to avoid the
-            // jitter/teleport felt when changing direction over a real network.
-            if (posError > 0.4) {
+            // Only correct position when the error is large enough to be a genuine desync
+            // (wall clip, teleport, death respawn etc). Below that threshold, trust local
+            // prediction entirely — any nudge toward the server's stale position causes the
+            // direction-change jitter felt over real network latency.
+            if (posError > 0.5) {
                 localPlayer.x = serverLocal.x;
                 localPlayer.y = serverLocal.y;
                 localPlayer.z = serverLocal.z;
                 localPlayer.vx = serverLocal.vx;
                 localPlayer.vy = serverLocal.vy;
                 localPlayer.vz = serverLocal.vz;
-            } else if (posError > 0.05) {
-                // Gentle lerp — close enough that snapping would feel like a stutter
-                const alpha = 0.3;
-                localPlayer.x += dx * alpha;
-                localPlayer.y += dy * alpha;
-                localPlayer.z += dz * alpha;
             }
             localPlayer.grounded = serverLocal.grounded;
             localPlayer.sliding = serverLocal.sliding;
