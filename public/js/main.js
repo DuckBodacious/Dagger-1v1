@@ -125,12 +125,28 @@ network.onGameState = (state) => {
         // mantling. Each side runs its own deterministic mantle; positions re-sync after.
         const serverMantling = serverLocal.mantling || false;
         if (!localPlayer.mantling && !serverMantling) {
-            localPlayer.x = serverLocal.x;
-            localPlayer.y = serverLocal.y;
-            localPlayer.z = serverLocal.z;
-            localPlayer.vx = serverLocal.vx;
-            localPlayer.vy = serverLocal.vy;
-            localPlayer.vz = serverLocal.vz;
+            const dx = serverLocal.x - localPlayer.x;
+            const dy = serverLocal.y - localPlayer.y;
+            const dz = serverLocal.z - localPlayer.z;
+            const posError = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            // Only hard-snap if the error is large enough to be a real desync.
+            // Small errors are smoothed toward the server position to avoid the
+            // jitter/teleport felt when changing direction over a real network.
+            if (posError > 0.4) {
+                localPlayer.x = serverLocal.x;
+                localPlayer.y = serverLocal.y;
+                localPlayer.z = serverLocal.z;
+                localPlayer.vx = serverLocal.vx;
+                localPlayer.vy = serverLocal.vy;
+                localPlayer.vz = serverLocal.vz;
+            } else if (posError > 0.05) {
+                // Gentle lerp — close enough that snapping would feel like a stutter
+                const alpha = 0.3;
+                localPlayer.x += dx * alpha;
+                localPlayer.y += dy * alpha;
+                localPlayer.z += dz * alpha;
+            }
             localPlayer.grounded = serverLocal.grounded;
             localPlayer.sliding = serverLocal.sliding;
             localPlayer.dashing = serverLocal.dashing;
