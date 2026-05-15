@@ -130,27 +130,23 @@ network.onGameState = (state) => {
             const dz = serverLocal.z - localPlayer.z;
             const posError = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-            if (posError > 0.5) {
-                // Large error — genuine desync (wall clip, respawn, etc).
-                // Snap position, yaw and pitch to server, then replay unacknowledged
-                // inputs to get back to the present.
-                localPlayer.x = serverLocal.x;
-                localPlayer.y = serverLocal.y;
-                localPlayer.z = serverLocal.z;
-                localPlayer.vx = serverLocal.vx;
-                localPlayer.vy = serverLocal.vy;
-                localPlayer.vz = serverLocal.vz;
-                localPlayer.yaw = serverLocal.yaw;
-                localPlayer.pitch = serverLocal.pitch;
+            // Snap to server position and replay unacknowledged inputs.
+            // With lastProcessedInput now only advancing after the server actually
+            // applies each input, the unacked list is accurate and the replay
+            // brings the client position back in sync without double-movement.
+            localPlayer.x = serverLocal.x;
+            localPlayer.y = serverLocal.y;
+            localPlayer.z = serverLocal.z;
+            localPlayer.vx = serverLocal.vx;
+            localPlayer.vy = serverLocal.vy;
+            localPlayer.vz = serverLocal.vz;
 
-                const unacked = network.getUnacknowledgedInputs(serverLocal.lastProcessedInput);
-                for (const pending of unacked) {
-                    processMovement(localPlayer, pending.input, 1 / CONFIG.SERVER_TICK_RATE, null);
-                }
+            const unacked = network.getUnacknowledgedInputs(serverLocal.lastProcessedInput);
+            for (const pending of unacked) {
+                processMovement(localPlayer, pending.input, 1 / CONFIG.SERVER_TICK_RATE, null);
             }
-            // Small error — trust local prediction entirely.
-            // yaw and pitch are client-controlled (mouse input). Overwriting them
-            // with the stale server value every 50ms causes mouse lag and jitter.
+            // yaw and pitch are client-controlled — never overwrite from server
+            // during normal play (causes mouse lag from stale 50ms-old values).
 
             localPlayer.grounded = serverLocal.grounded;
             localPlayer.sliding = serverLocal.sliding;

@@ -1837,7 +1837,11 @@ function handleMessage(playerId, msg) {
     switch (msg.type) {
         case 'input':
             player.lastInput = msg;
-            player.lastProcessedInput = msg.seq;
+            // Do NOT update lastProcessedInput here — update it in the game loop
+            // after the input is actually applied to the player's position.
+            // Marking it processed on receive causes the client to discard the
+            // input from its unacknowledged list before the server has moved the
+            // player, leading to large posError and position snaps (teleporting).
             break;
 
         case 'lobby_config':
@@ -2564,6 +2568,7 @@ function updateGame(dt) {
         if (player.lastInput) {
             processPlayerInput(player, player.lastInput, dt);
             processCombat(player, player.lastInput);
+            player.lastProcessedInput = player.lastInput.seq; // mark processed only after applying
             player.lastInput = null;
         }
     }
