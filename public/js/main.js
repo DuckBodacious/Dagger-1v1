@@ -130,18 +130,26 @@ network.onGameState = (state) => {
             const dz = serverLocal.z - localPlayer.z;
             const posError = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-            // Only correct position when the error is large enough to be a genuine desync
-            // (wall clip, teleport, death respawn etc). Below that threshold, trust local
-            // prediction entirely — any nudge toward the server's stale position causes the
-            // direction-change jitter felt over real network latency.
             if (posError > 0.5) {
+                // Large error — genuine desync (wall clip, respawn, etc).
+                // Snap to server position then replay unacknowledged inputs to
+                // get back to the present. Only replay when we actually snapped —
+                // replaying without snapping first applies inputs a second time
+                // on top of an already-predicted position, causing double movement.
                 localPlayer.x = serverLocal.x;
                 localPlayer.y = serverLocal.y;
                 localPlayer.z = serverLocal.z;
                 localPlayer.vx = serverLocal.vx;
                 localPlayer.vy = serverLocal.vy;
                 localPlayer.vz = serverLocal.vz;
+
+                const unacked = network.getUnacknowledgedInputs(serverLocal.lastProcessedInput);
+                for (const pending of unacked) {
+                    processMovement(localPlayer, pending.input, 1 / CONFIG.SERVER_TICK_RATE, null);
+                }
             }
+            // Small error — trust local prediction entirely. No snap, no replay.
+
             localPlayer.grounded = serverLocal.grounded;
             localPlayer.sliding = serverLocal.sliding;
             localPlayer.dashing = serverLocal.dashing;
@@ -161,12 +169,6 @@ network.onGameState = (state) => {
             carriedObjectMesh.material.dispose();
             carriedObjectMesh = null;
             carriedObjectType = null;
-        }
-
-        // Re-apply unacknowledged inputs
-        const unacked = network.getUnacknowledgedInputs(serverLocal.lastProcessedInput);
-        for (const pending of unacked) {
-            processMovement(localPlayer, pending.input, 1 / CONFIG.SERVER_TICK_RATE, null);
         }
     }
 
