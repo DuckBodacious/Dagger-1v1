@@ -147,9 +147,8 @@ network.onGameState = (state) => {
             localPlayer.dashing = serverLocal.dashing;
             localPlayer.mantling = false;
         }
-        // yaw and pitch are client-controlled (mouse input) — never overwrite from server.
-        // Doing so snaps the camera back to stale server values every 50ms, which is the
-        // primary cause of direction-change jitter over real network latency.
+        localPlayer.yaw = serverLocal.yaw;
+        localPlayer.pitch = serverLocal.pitch;
         localPlayer.crouching = serverLocal.crouching;
 
         // Sync carried object id from server
