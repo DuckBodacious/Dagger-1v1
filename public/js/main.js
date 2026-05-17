@@ -98,15 +98,25 @@ network.onGameState = (state) => {
         }
         prevLocalHp = serverLocal.hp;
 
-        // Detect respawn (dead → alive) for fade-in
+        // Detect respawn (dead → alive) — hard sync position from server
         if (serverLocal.alive && !prevLocalAlive) {
             renderer.triggerRespawnFade();
             prevLocalHp = CONFIG.PLAYER_HP;
-            jumpPadCooldown = 0; // reset on respawn
+            jumpPadCooldown = 0;
+            localPlayer.x = serverLocal.x;
+            localPlayer.y = serverLocal.y;
+            localPlayer.z = serverLocal.z;
+            localPlayer.vx = 0; localPlayer.vy = 0; localPlayer.vz = 0;
+            localPlayer.yaw = serverLocal.yaw;
+            localPlayer.pitch = 0;
         }
         prevLocalAlive = serverLocal.alive;
 
-        // Apply authoritative state
+        // Apply authoritative game state — non-positional only.
+        // Position, velocity, and physics states (grounded/sliding/dashing) are
+        // handled by local prediction. Syncing them from the server causes movement
+        // bugs because the server only processes the last received input per tick
+        // while the client applies every input at full frame rate.
         localPlayer.hp = serverLocal.hp;
         localPlayer.alive = serverLocal.alive;
         localPlayer.kills = serverLocal.kills;
@@ -116,45 +126,6 @@ network.onGameState = (state) => {
         localPlayer.attackState = serverLocal.attackState;
         localPlayer.chargeTimer = serverLocal.chargeTimer;
         localPlayer.regenActive = serverLocal.regenActive || false;
-
-        // Server reconciliation for position.
-        // Mantle start/target/timer are LOCAL-ONLY state — not serialized.
-        // If we snap to server position mid-mantle the client still has the old mantleTimer=0
-        // and mantleTargetY=0, so processMantling immediately snaps to y=0.9 (floor) — the
-        // "teleport to bottom" bug. Fix: skip position reconciliation while EITHER side is
-        // mantling. Each side runs its own deterministic mantle; positions re-sync after.
-        const serverMantling = serverLocal.mantling || false;
-        if (!localPlayer.mantling && !serverMantling) {
-            const dx = serverLocal.x - localPlayer.x;
-            const dy = serverLocal.y - localPlayer.y;
-            const dz = serverLocal.z - localPlayer.z;
-            const posError = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-            // Snap to server position and replay unacknowledged inputs.
-            // With lastProcessedInput now only advancing after the server actually
-            // applies each input, the unacked list is accurate and the replay
-            // brings the client position back in sync without double-movement.
-            localPlayer.x = serverLocal.x;
-            localPlayer.y = serverLocal.y;
-            localPlayer.z = serverLocal.z;
-            localPlayer.vx = serverLocal.vx;
-            localPlayer.vy = serverLocal.vy;
-            localPlayer.vz = serverLocal.vz;
-
-            const unacked = network.getUnacknowledgedInputs(serverLocal.lastProcessedInput);
-            for (const pending of unacked) {
-                // Zero out mouse deltas — yaw/pitch were already applied in the game loop.
-                // Replaying them would double the mouse sensitivity.
-                processMovement(localPlayer, { ...pending.input, mouseDeltaX: 0, mouseDeltaY: 0 }, 1 / CONFIG.SERVER_TICK_RATE, null);
-            }
-            // yaw and pitch are client-controlled — never overwrite from server
-            // during normal play (causes mouse lag from stale 50ms-old values).
-
-            localPlayer.grounded = serverLocal.grounded;
-            localPlayer.sliding = serverLocal.sliding;
-            localPlayer.dashing = serverLocal.dashing;
-            localPlayer.mantling = false;
-        }
         localPlayer.crouching = serverLocal.crouching;
 
         // Sync carried object id from server
@@ -305,6 +276,14 @@ network.onJumpPadEvent = (msg) => {
         jumpPads.onPadTriggered(msg.id);
         if (msg.playerId === localPlayer?.id) {
             audio.playJumpPad();
+            // Apply launch velocity from server — jump pads fire server-side so
+            // local prediction never sees the velocity without this explicit sync.
+            if (localPlayer && msg.vx !== undefined) {
+                localPlayer.vx = msg.vx;
+                localPlayer.vy = msg.vy;
+                localPlayer.vz = msg.vz;
+                localPlayer.grounded = false;
+            }
         }
     }
 };

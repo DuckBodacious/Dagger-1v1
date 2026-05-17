@@ -2104,7 +2104,7 @@ function updateJumpPads(dt) {
                         }
                         player.vy = CONFIG.JUMP_PAD_WALL_UP;
                     }
-                    broadcast({ type: 'jumppad_triggered', id: pad.id, playerId: player.id });
+                    broadcast({ type: 'jumppad_triggered', id: pad.id, playerId: player.id, vx: player.vx, vy: player.vy, vz: player.vz });
                 }
             }
         }
