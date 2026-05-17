@@ -1844,6 +1844,29 @@ function handleMessage(playerId, msg) {
             // player, leading to large posError and position snaps (teleporting).
             break;
 
+        case 'trigger_jumppad': {
+            // Client detected it walked over a pad (client-side proximity check).
+            // Apply launch velocity server-side and broadcast to all.
+            const pad = JUMP_PADS.get([...JUMP_PADS.keys()].find(k => {
+                const p = JUMP_PADS.get(k);
+                return p && p.id === msg.padId;
+            }));
+            if (pad && player.alive) {
+                const retrigger = pad.triggerCooldowns.get(playerId) || 0;
+                if (Date.now() / 1000 - retrigger > CONFIG.JUMP_PAD_RETRIGGER_DELAY) {
+                    pad.triggerCooldowns.set(playerId, Date.now() / 1000);
+                    const len = Math.sqrt(pad.nx * pad.nx + pad.ny * pad.ny + pad.nz * pad.nz);
+                    if (pad.ny < 0.5) {
+                        player.vx = (pad.nx / len) * CONFIG.JUMP_PAD_WALL_SPEED;
+                        player.vz = (pad.nz / len) * CONFIG.JUMP_PAD_WALL_SPEED;
+                    }
+                    player.vy = CONFIG.JUMP_PAD_WALL_UP;
+                    broadcast({ type: 'jumppad_triggered', id: pad.id, playerId, vx: player.vx, vy: player.vy, vz: player.vz });
+                }
+            }
+            break;
+        }
+
         case 'lobby_config':
             // Only host can change lobby settings
             if (playerId !== lobbyHostId) break;

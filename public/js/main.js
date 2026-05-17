@@ -562,6 +562,22 @@ function gameLoop(currentTime) {
         // ─── Audio: Footsteps ───
         audio.updateFootsteps(localPlayer, dt);
 
+        // ─── Client-side jump pad detection ───────────────────────────────────
+        // Server can't reliably trigger pads because local position is no longer
+        // reconciled. Detect proximity here and ask the server to fire the pad.
+        if (localPlayer.grounded && jumpPads) {
+            const TRIGGER_R = CONFIG.JUMP_PAD_TRIGGER_RADIUS ?? 0.9;
+            for (const [padId, entry] of jumpPads.pads) {
+                const pd = entry.data;
+                const dx = localPlayer.x - pd.x;
+                const dz = localPlayer.z - pd.z;
+                if (Math.sqrt(dx * dx + dz * dz) < TRIGGER_R) {
+                    network.sendRaw({ type: 'trigger_jumppad', padId });
+                    break;
+                }
+            }
+        }
+
         // Detect local dash start
         if (localPlayer.dashing && !wasDashing) {
             localDashStart = { x: localPlayer.x, y: localPlayer.y, z: localPlayer.z };
