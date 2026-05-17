@@ -143,7 +143,9 @@ network.onGameState = (state) => {
 
             const unacked = network.getUnacknowledgedInputs(serverLocal.lastProcessedInput);
             for (const pending of unacked) {
-                processMovement(localPlayer, pending.input, 1 / CONFIG.SERVER_TICK_RATE, null);
+                // Zero out mouse deltas — yaw/pitch were already applied in the game loop.
+                // Replaying them would double the mouse sensitivity.
+                processMovement(localPlayer, { ...pending.input, mouseDeltaX: 0, mouseDeltaY: 0 }, 1 / CONFIG.SERVER_TICK_RATE, null);
             }
             // yaw and pitch are client-controlled — never overwrite from server
             // during normal play (causes mouse lag from stale 50ms-old values).
