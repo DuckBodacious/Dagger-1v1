@@ -500,10 +500,18 @@ function gameLoop(currentTime) {
         }
     }
 
-    // Build the input to send to the server (suppress attacks while carrying)
-    const serverInput = carriedObjectId !== null
-        ? { ...inputState, primaryAttack: false, chargedAttack: false, elbow: false }
-        : inputState;
+    // Build the input to send to the server (suppress attacks while carrying).
+    // Include client position + yaw so the server uses the correct position for
+    // hit detection instead of its own drifted simulation.
+    const serverInput = {
+        ...(carriedObjectId !== null
+            ? { ...inputState, primaryAttack: false, chargedAttack: false, elbow: false }
+            : inputState),
+        px: localPlayer.x,
+        py: localPlayer.y,
+        pz: localPlayer.z,
+        pyaw: localPlayer.yaw,
+    };
 
     if (network.connected) {
         network.sendInput(serverInput);

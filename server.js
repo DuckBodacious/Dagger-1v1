@@ -2589,6 +2589,15 @@ function updateGame(dt) {
 
     for (const player of players.values()) {
         if (player.lastInput) {
+            // Sync server position from client-reported values before processing.
+            // Client position is authoritative since we removed reconciliation —
+            // this keeps hit detection accurate regardless of server simulation drift.
+            if (player.lastInput.px !== undefined && player.ws !== null) {
+                player.x = player.lastInput.px;
+                player.y = player.lastInput.py;
+                player.z = player.lastInput.pz;
+                player.yaw = player.lastInput.pyaw;
+            }
             processPlayerInput(player, player.lastInput, dt);
             processCombat(player, player.lastInput);
             player.lastProcessedInput = player.lastInput.seq; // mark processed only after applying
