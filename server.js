@@ -2214,9 +2214,14 @@ function processPlayerInput(player, input, dt) {
     if (input.dash && player.dashCharges > 0 && !player.dashing && !player.dashInputConsumed) {
         player.dashing = true;
         player.dashTime = 0;
+        // Only start the recharge timer on the FIRST dash from full charges.
+        // Subsequent dashes within the window don't reset it — so using dash at T=0,
+        // another at T=3 means all charges return at T=5, not T=8.
+        if (player.dashCharges === CONFIG.DASH_CHARGES) {
+            player.dashRechargeTimer = CONFIG.DASH_COOLDOWN;
+        }
         player.dashCharges--;
         player.dashInputConsumed = true;
-        player.dashRechargeTimer = CONFIG.DASH_COOLDOWN; // shared timer resets on every dash use
 
         const cosP = Math.cos(player.pitch);
         const dashDirX = -Math.sin(player.yaw) * cosP;

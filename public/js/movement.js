@@ -381,9 +381,11 @@ function startDash(player, input) {
         player.dashDirZ = forward.z;
     }
 
-    // Use a charge — shared timer resets to 5s on every use
+    // Use a charge — only start the recharge timer on the FIRST dash from full charges
+    if (player.dashCharges === CONFIG.DASH_CHARGES) {
+        player.dashRechargeTimer = CONFIG.DASH_COOLDOWN;
+    }
     player.dashCharges--;
-    player.dashRechargeTimer = CONFIG.DASH_COOLDOWN;
 
     // Reduce vertical velocity during dash (not zero — allows slight drift)
     player.vy *= 0.2;
