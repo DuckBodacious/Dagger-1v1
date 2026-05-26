@@ -50,7 +50,7 @@ const CONFIG = {
     CHARGED_DAMAGE_BACK: 150,
     CHARGED_RANGE: 2.2,
     CHARGE_TIME: 0.7,
-    CHARGED_DURATION: 0.35,
+    CHARGED_DURATION: 0.65,
 
     ELBOW_DAMAGE: 40,
     ELBOW_RANGE: 1.3,
@@ -92,10 +92,30 @@ const CONFIG = {
 
 const SPAWN_POINTS = [
     { x: -15, z: -15 },
-    { x: 15, z: 15 },
-    { x: -15, z: 15 },
-    { x: 15, z: -15 },
+    { x:  15, z:  15 },
+    { x: -15, z:  15 },
+    { x:  15, z: -15 },
 ];
+
+// Returns the spawn point furthest from all living enemies of excludeId.
+function getBestSpawn(excludeId) {
+    let best = SPAWN_POINTS[0];
+    let bestDist = -1;
+    for (const sp of SPAWN_POINTS) {
+        let minEnemyDist = Infinity;
+        for (const p of players.values()) {
+            if (p.id === excludeId || !p.alive) continue;
+            const dx = p.x - sp.x, dz = p.z - sp.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < minEnemyDist) minEnemyDist = d;
+        }
+        if (minEnemyDist > bestDist) {
+            bestDist = minEnemyDist;
+            best = sp;
+        }
+    }
+    return best;
+}
 
 const COLLISION_BOXES = [];
 
@@ -364,6 +384,7 @@ class ServerPlayer {
 
         this.lastInput = null;
         this.lastProcessedInput = 0;
+        this.respawnProtect = 0; // ticks to ignore client-reported position after respawn
 
         this.carriedObjectId = null;
         this.jumpPadCooldown = 0;
@@ -2036,11 +2057,23 @@ function checkGameStart() {
     }
     if (allReady) {
         gameActive = true;
-        let idx = 0;
+        // Assign each player the spawn point furthest from already-placed players
+        const usedSpawns = [];
         for (const p of players.values()) {
-            p.x = SPAWN_POINTS[idx % SPAWN_POINTS.length].x;
-            p.z = SPAWN_POINTS[idx % SPAWN_POINTS.length].z;
-            p.yaw = idx === 0 ? 0 : Math.PI;
+            // Pick the point furthest from used spawns
+            let best = SPAWN_POINTS[0], bestDist = -1;
+            for (const sp of SPAWN_POINTS) {
+                let minUsed = Infinity;
+                for (const u of usedSpawns) {
+                    const dx = u.x - sp.x, dz = u.z - sp.z;
+                    minUsed = Math.min(minUsed, Math.sqrt(dx * dx + dz * dz));
+                }
+                if (minUsed > bestDist) { bestDist = minUsed; best = sp; }
+            }
+            usedSpawns.push(best);
+            p.x = best.x;
+            p.z = best.z;
+            p.yaw = best.z < 0 ? 0 : Math.PI; // face toward building
             p.y = CONFIG.PLAYER_HEIGHT / 2;
             p.vx = 0; p.vy = 0; p.vz = 0;
             p.hp = CONFIG.PLAYER_HP;
@@ -2049,7 +2082,7 @@ function checkGameStart() {
             p.deaths = 0;
             p.dashCharges = CONFIG.DASH_CHARGES;
             p.carriedObjectId = null;
-            idx++;
+            p.respawnProtect = 2.0;
         }
 
         for (const dest of destructibles) {
@@ -2514,10 +2547,11 @@ function updateGame(dt) {
                 player.alive = true;
                 player.hp = CONFIG.PLAYER_HP;
                 player.respawnTimer = 0;
-                const spawnIdx = Array.from(players.keys()).indexOf(player.id);
-                player.x = SPAWN_POINTS[spawnIdx % 2].x;
-                player.z = SPAWN_POINTS[spawnIdx % 2].z;
+                const sp = getBestSpawn(player.id);
+                player.x = sp.x;
+                player.z = sp.z;
                 player.y = CONFIG.PLAYER_HEIGHT / 2;
+                player.respawnProtect = 2.0; // ignore client position for 2s after spawn
                 player.vx = 0; player.vy = 0; player.vz = 0;
                 player.dashCharges = CONFIG.DASH_CHARGES;
                 player.dashRechargeTimer = 0;
@@ -2588,11 +2622,13 @@ function updateGame(dt) {
     }
 
     for (const player of players.values()) {
+        if (player.respawnProtect > 0) player.respawnProtect -= dt;
+
         if (player.lastInput) {
             // Sync server position from client-reported values before processing.
-            // Client position is authoritative since we removed reconciliation —
-            // this keeps hit detection accurate regardless of server simulation drift.
-            if (player.lastInput.px !== undefined && player.ws !== null) {
+            // Skip during respawnProtect window — the server just placed the player at
+            // a spawn point and the client is still sending stale death-position inputs.
+            if (player.lastInput.px !== undefined && player.ws !== null && player.respawnProtect <= 0) {
                 player.x = player.lastInput.px;
                 player.y = player.lastInput.py;
                 player.z = player.lastInput.pz;

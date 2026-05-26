@@ -50,7 +50,7 @@ export const CONFIG = {
     CHARGED_DAMAGE_BACK: 150,      // backstab
     CHARGED_RANGE: 2.2,            // meters
     CHARGE_TIME: 0.7,              // seconds to fully charge
-    CHARGED_DURATION: 0.35,        // attack animation time
+    CHARGED_DURATION: 0.65,        // attack animation time
 
     ELBOW_DAMAGE: 40,
     ELBOW_RANGE: 1.3,              // meters
