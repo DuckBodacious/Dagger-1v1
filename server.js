@@ -2491,7 +2491,7 @@ function processCombat(player, input) {
                 const backDot = toAttLen > 0.01
                     ? (targetFwdX * (toAttX / toAttLen) + targetFwdZ * (toAttZ / toAttLen))
                     : 1;
-                isBackstab = backDot < -0.3;
+                isBackstab = backDot < 0.0; // ±90° from behind (25% wider than default ±72.5°)
 
                 hitDamage = isBackstab ? CONFIG.CHARGED_DAMAGE_BACK : CONFIG.CHARGED_DAMAGE_FRONT;
                 hitPlayerId = other.id;
