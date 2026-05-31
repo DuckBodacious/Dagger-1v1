@@ -17,6 +17,7 @@ import { JumpPadManager } from './jumppad.js';
 let localPlayer = null;
 let remotePlayers = new Map();  // id → { state, prevState, renderState }
 let gameActive = false;
+let prevGameActive = false;
 let killGoal = 10;
 let prevLocalAttackState = 'idle';
 let prevLocalHp = CONFIG.PLAYER_HP;
@@ -68,6 +69,7 @@ network.onConnected = (playerId, hostFlag, displayId) => {
 };
 
 network.onGameState = (state) => {
+    prevGameActive = gameActive;
     gameActive = state.gameActive;
     killGoal = state.killGoal;
 
@@ -75,6 +77,17 @@ network.onGameState = (state) => {
 
     const serverLocal = state.players.find(p => p.id === localPlayer.id);
     if (serverLocal) {
+        // Sync position on game start (alive→alive transition skips the respawn check)
+        if (gameActive && !prevGameActive) {
+            localPlayer.x = serverLocal.x;
+            localPlayer.y = serverLocal.y;
+            localPlayer.z = serverLocal.z;
+            localPlayer.vx = 0; localPlayer.vy = 0; localPlayer.vz = 0;
+            localPlayer.yaw = serverLocal.yaw;
+            localPlayer.pitch = 0;
+            prevLocalAlive = false; // ensure respawn detection re-arms properly
+        }
+
         // Detect HP change for damage effects
         if (serverLocal.hp < prevLocalHp && serverLocal.alive) {
             const damage = prevLocalHp - serverLocal.hp;
@@ -294,7 +307,8 @@ network.onObjectEvent = (msg) => {
 
 network.onGameStart = (msg) => {
     killGoal = msg.killGoal;
-    gameActive = true;
+    // Do NOT set gameActive here — let onGameState set it so prevGameActive stays
+    // false for the first snapshot, which triggers the position sync block below.
     prevLocalHp = CONFIG.PLAYER_HP;
     hud.showLobby(false);
     // Show pointer lock prompt if mouse isn't already locked
