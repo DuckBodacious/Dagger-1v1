@@ -29,6 +29,8 @@ let jumpPads = null;
 let gateways = null;
 let gatewayCooldown = 0;   // client-side mirror of server cooldown (for HUD only)
 let gatewayCount = 0;      // 0=none, 1=first placed, 2=both placed
+let gatewayMode = false;   // true while player is "holding" the gateway cube
+let gatewayHeldMesh = null; // the black cube shown in hand during gateway mode
 
 // ─── Lobby State ───
 let isHost = false;
@@ -94,6 +96,8 @@ network.onGameState = (state) => {
             gateways?.clear();
             gatewayCooldown = 0;
             gatewayCount = 0;
+            gatewayMode = false;
+            if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; }
         }
 
         // Detect HP change for damage effects
@@ -549,7 +553,7 @@ function gameLoop(currentTime) {
     // Include client position + yaw so the server uses the correct position for
     // hit detection instead of its own drifted simulation.
     const serverInput = {
-        ...(carriedObjectId !== null
+        ...((carriedObjectId !== null || gatewayMode)
             ? { ...inputState, primaryAttack: false, chargedAttack: false, elbow: false }
             : inputState),
         px: localPlayer.x,
@@ -584,10 +588,55 @@ function gameLoop(currentTime) {
 
     hud.updateJumpPadCooldown(Math.max(0, jumpPadCooldown), CONFIG.JUMP_PAD_COOLDOWN);
 
-    // ─── Gateway throw ───
-    // Allow throw when: alive, holding Q, cooldown expired, fewer than 2 placed, nothing in flight
-    if (localPlayer?.alive && inputState.throwGatewayClick
-            && gatewayCooldown <= 0 && gatewayCount < 2 && !gateways.hasInFlight()) {
+    // ─── Gateway mode toggle (Q) ───
+    if (inputState.qKeyJust && localPlayer?.alive) {
+        if (gatewayMode) {
+            // Q again → exit mode
+            gatewayMode = false;
+        } else if (gatewayCooldown <= 0 && gatewayCount < 2 && !gateways.hasInFlight()) {
+            gatewayMode = true;
+        }
+    }
+    // Auto-exit mode when conditions are no longer valid
+    if (gatewayMode && (!localPlayer?.alive || gatewayCooldown > 0 || gatewayCount >= 2)) {
+        gatewayMode = false;
+    }
+
+    // ─── Held gateway cube (shown in first-person while in gateway mode) ───
+    if (gatewayMode && localPlayer?.alive && !gateways.hasInFlight()) {
+        if (!gatewayHeldMesh) {
+            const geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0x0a0a0a,
+                emissive: 0x000000,
+                metalness: 0.9,
+                roughness: 0.2,
+            });
+            gatewayHeldMesh = new THREE.Mesh(geo, mat);
+            renderer.scene.add(gatewayHeldMesh);
+        }
+        // Position in front-right-below the camera (matching barrel carry)
+        const cam  = renderer.camera;
+        const fwd  = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+        const up   = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+        gatewayHeldMesh.position.copy(cam.position)
+            .addScaledVector(fwd,   0.55)
+            .addScaledVector(right, 0.22)
+            .addScaledVector(up,   -0.18);
+        gatewayHeldMesh.rotation.copy(cam.rotation);
+        gatewayHeldMesh.rotation.y += Math.PI / 6; // slight yaw to look natural
+    } else {
+        // Remove held mesh when not in gateway mode
+        if (gatewayHeldMesh) {
+            renderer.scene.remove(gatewayHeldMesh);
+            gatewayHeldMesh = null;
+        }
+    }
+
+    // ─── Gateway throw (left-click while in gateway mode) ───
+    if (gatewayMode && localPlayer?.alive && inputState.leftClickJust && !gateways.hasInFlight()) {
+        gatewayMode = false; // exit mode immediately — cube flies off
         gateways.startThrow(
             localPlayer.x, localPlayer.y, localPlayer.z, localPlayer.yaw,
             (landX, landZ) => {
