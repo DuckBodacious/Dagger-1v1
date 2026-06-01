@@ -123,6 +123,16 @@ network.onGameState = (state) => {
         }
         prevLocalHp = serverLocal.hp;
 
+        // Detect death (alive → dead) — reset gateway state immediately
+        if (!serverLocal.alive && prevLocalAlive) {
+            gatewayMode = false;
+            gatewayCooldown = 0;
+            gatewayCount = 0;
+            gateways.cancelInFlight();
+            if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; }
+            // Gateway meshes are removed via gateway_expired broadcast from server
+        }
+
         // Detect respawn (dead → alive) — hard sync position from server
         if (serverLocal.alive && !prevLocalAlive) {
             renderer.triggerRespawnFade();
@@ -222,6 +232,12 @@ network.onGameState = (state) => {
 
 network.onLobbyState = (msg) => {
     lobbyState = msg;
+    // Push chosen colors into renderer so in-game models update
+    if (msg.players) {
+        for (const p of msg.players) {
+            if (p.color) renderer.setPlayerColor(p.id, p.color);
+        }
+    }
     updateLobbyUI();
 };
 
@@ -361,69 +377,104 @@ network.handleMessage = (msg) => {
         hud.showGameOver(msg.winnerId, localPlayer.id, msg.scores);
     }
     if (msg.type === 'lobby_state') {
-        // Re-enable start button if it was disabled
+        // Start button state is re-evaluated in updateLobbyUI; just un-freeze "Starting..." state
         const btn = document.getElementById('start-btn');
-        if (btn) { btn.textContent = 'START GAME'; btn.disabled = false; }
+        if (btn && btn.textContent === 'Starting...') { btn.textContent = 'START GAME'; btn.disabled = false; }
     }
 };
 
 // ─── Lobby UI ───
 
+const PLAYER_COLORS = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#a855f7','#ec4899','#14b8a6','#f97316'];
+
+function buildColorSwatches(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    const myColor = lobbyState.players?.find(p => p.id === localPlayer?.id)?.color ?? null;
+    const takenColors = new Set((lobbyState.players || []).filter(p => p.id !== localPlayer?.id).map(p => p.color));
+    for (const color of PLAYER_COLORS) {
+        const sw = document.createElement('button');
+        sw.className = 'color-swatch' +
+            (color === myColor ? ' selected' : '') +
+            (takenColors.has(color) ? ' taken' : '');
+        sw.style.background = color;
+        sw.title = color;
+        sw.disabled = takenColors.has(color);
+        sw.addEventListener('click', () => {
+            network.sendPlayerColor(color);
+        });
+        container.appendChild(sw);
+    }
+}
+
+function buildPlayerList(listId) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    list.innerHTML = '';
+    if (!lobbyState.players) return;
+    for (const p of lobbyState.players) {
+        const chip = document.createElement('div');
+        chip.className = 'lobby-player-chip' +
+            (p.id === localPlayer?.id ? ' is-you' : '') +
+            (p.isHost ? ' is-host' : '');
+        const dot = p.color ? `<span class="player-color-dot" style="background:${p.color}"></span>` : '';
+        const readyTag = (!p.isHost && p.ready) ? ' <span class="ready-tag">READY</span>' : '';
+        const notReadyTag = (!p.isHost && !p.ready) ? ' <span class="not-ready-tag">NOT READY</span>' : '';
+        const label = p.id === localPlayer?.id
+            ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
+            : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
+        chip.innerHTML = `${dot}${label}${readyTag}${notReadyTag}`;
+        list.appendChild(chip);
+    }
+}
+
 function updateLobbyUI() {
     const hostConfig = document.getElementById('host-config');
     const waitingPanel = document.getElementById('waiting-panel');
     const startBtn = document.getElementById('start-btn');
+    const readyBtn = document.getElementById('ready-btn');
 
     if (isHost) {
         hostConfig.style.display = 'block';
         waitingPanel.style.display = 'none';
         startBtn.style.display = 'inline-block';
+        readyBtn.style.display = 'none';
 
         // Sync counters to current lobbyState
         document.getElementById('humans-display').textContent = lobbyState.humanSlots ?? 1;
         document.getElementById('bots-display').textContent = lobbyState.botCount ?? 1;
         document.getElementById('goal-display').textContent = lobbyState.killGoal ?? 10;
 
-        // Player list for host
-        const list = document.getElementById('lobby-player-list');
-        list.innerHTML = '';
-        if (lobbyState.players) {
-            for (const p of lobbyState.players) {
-                const chip = document.createElement('div');
-                chip.className = 'lobby-player-chip' +
-                    (p.id === localPlayer?.id ? ' is-you' : '') +
-                    (p.isHost ? ' is-host' : '');
-                chip.textContent = p.id === localPlayer?.id
-                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
-                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
-                list.appendChild(chip);
-            }
+        // Enable/disable start based on all non-host players being ready
+        const nonHostPlayers = (lobbyState.players || []).filter(p => !p.isHost);
+        const allReady = nonHostPlayers.length === 0 || nonHostPlayers.every(p => p.ready);
+        if (!startBtn.disabled) {
+            startBtn.disabled = !allReady;
+            startBtn.textContent = allReady ? 'START GAME' : 'WAITING FOR PLAYERS…';
         }
+
+        buildColorSwatches('color-swatches-host');
+        buildPlayerList('lobby-player-list');
     } else {
         hostConfig.style.display = 'none';
         waitingPanel.style.display = 'block';
         startBtn.style.display = 'none';
+        readyBtn.style.display = 'inline-block';
 
         // Show config summary for non-host
         const cfgDisplay = document.getElementById('lobby-config-display');
         cfgDisplay.textContent =
             `${lobbyState.humanSlots ?? '?'} Players  ·  ${lobbyState.botCount ?? '?'} Bots  ·  First to ${lobbyState.killGoal ?? '?'} kills`;
 
-        // Player list for non-host
-        const list = document.getElementById('lobby-player-list-nonhost');
-        list.innerHTML = '';
-        if (lobbyState.players) {
-            for (const p of lobbyState.players) {
-                const chip = document.createElement('div');
-                chip.className = 'lobby-player-chip' +
-                    (p.id === localPlayer?.id ? ' is-you' : '') +
-                    (p.isHost ? ' is-host' : '');
-                chip.textContent = p.id === localPlayer?.id
-                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
-                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
-                list.appendChild(chip);
-            }
-        }
+        // Update ready button state
+        const me = lobbyState.players?.find(p => p.id === localPlayer?.id);
+        const imReady = me?.ready ?? false;
+        readyBtn.textContent = imReady ? 'READY ✓' : 'READY UP';
+        readyBtn.classList.toggle('is-ready', imReady);
+
+        buildColorSwatches('color-swatches-guest');
+        buildPlayerList('lobby-player-list-nonhost');
     }
 }
 
@@ -473,6 +524,14 @@ document.getElementById('goal-plus')?.addEventListener('click', () => {
     lobbyState.killGoal = Math.min(100, (lobbyState.killGoal || 10) + 1);
     network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
     updateLobbyUI();
+});
+
+// Ready button (non-host only)
+document.getElementById('ready-btn')?.addEventListener('click', () => {
+    if (isHost) return;
+    const me = lobbyState.players?.find(p => p.id === localPlayer?.id);
+    const imReady = me?.ready ?? false;
+    network.sendPlayerReady(!imReady);
 });
 
 // Start button (host only)

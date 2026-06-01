@@ -1692,7 +1692,7 @@ let lobbyConfig = { humanSlots: 1, botCount: 1, killGoal: 10 };
 function broadcastLobbyState() {
     const playerList = Array.from(players.values())
         .filter(p => !p.isBot)
-        .map(p => ({ id: p.id, displayId: p.displayId, isHost: p.id === lobbyHostId }));
+        .map(p => ({ id: p.id, displayId: p.displayId, isHost: p.id === lobbyHostId, color: p.color || null, ready: p.ready || false }));
     broadcast({
         type: 'lobby_state',
         hostId: lobbyHostId,
@@ -1906,6 +1906,27 @@ function handleMessage(playerId, msg) {
             break;
         }
 
+        case 'player_color': {
+            if (gameActive) break;
+            const allowed = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#a855f7','#ec4899','#14b8a6','#f97316'];
+            if (allowed.includes(msg.color)) {
+                // Prevent two players picking the same color
+                const taken = Array.from(players.values()).some(p => p.id !== playerId && p.color === msg.color);
+                if (!taken) {
+                    player.color = msg.color;
+                    broadcastLobbyState();
+                }
+            }
+            break;
+        }
+
+        case 'player_ready': {
+            if (gameActive) break;
+            player.ready = !!msg.ready;
+            broadcastLobbyState();
+            break;
+        }
+
         case 'lobby_config':
             // Only host can change lobby settings
             if (playerId !== lobbyHostId) break;
@@ -1926,10 +1947,13 @@ function handleMessage(playerId, msg) {
             broadcastLobbyState();
             break;
 
-        case 'start_game':
+        case 'start_game': {
             // Only host can start
             if (playerId !== lobbyHostId) break;
             if (gameActive) break;
+            // All non-host human players must be ready
+            const nonHostHumans = Array.from(players.values()).filter(p => !p.isBot && p.id !== lobbyHostId);
+            if (nonHostHumans.some(p => !p.ready)) break;
             killGoal = lobbyConfig.killGoal;
             console.log(`[Server] Host starting game (goal: ${killGoal})`);
 
@@ -1950,6 +1974,7 @@ function handleMessage(playerId, msg) {
 
             checkGameStart();
             break;
+        }
 
         case 'pickup_object': {
             if (!player.alive) break;
@@ -2222,6 +2247,17 @@ function updateGateways(dt) {
             GATEWAYS.delete(ownerId);
         }
     }
+}
+
+function clearPlayerGateways(playerId) {
+    const gw = GATEWAYS.get(playerId);
+    if (!gw) return;
+    if (gw.a || gw.b) {
+        broadcast({ type: 'gateway_expired', ownerId: playerId, aId: gw.a?.id, bId: gw.b?.id });
+    }
+    GATEWAYS.delete(playerId);
+    const p = players.get(playerId);
+    if (p) { p.gatewayCooldown = 0; p.gatewayCount = 0; }
 }
 
 function clearGateways() {
@@ -2671,6 +2707,12 @@ function updateGame(dt) {
     if (!gameActive) return;
 
     for (const player of players.values()) {
+        // Detect alive→dead transition and clear gateways immediately on death
+        if (player._wasAlive && !player.alive) {
+            clearPlayerGateways(player.id);
+        }
+        player._wasAlive = player.alive;
+
         if (!player.alive) {
             player.respawnTimer -= dt;
             if (player.respawnTimer <= 0) {
