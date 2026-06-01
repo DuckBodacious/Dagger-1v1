@@ -2100,8 +2100,8 @@ function handleMessage(playerId, msg) {
             for (const [ownerId, gw] of GATEWAYS) {
                 if (!gw.a || !gw.b || gw.timer <= 0) continue;
 
-                const distA = Math.sqrt((player.x - gw.a.x) ** 2 + (player.z - gw.a.z) ** 2);
-                const distB = Math.sqrt((player.x - gw.b.x) ** 2 + (player.z - gw.b.z) ** 2);
+                const distA = Math.sqrt((player.x-gw.a.x)**2 + (player.y-gw.a.y)**2 + (player.z-gw.a.z)**2);
+                const distB = Math.sqrt((player.x-gw.b.x)**2 + (player.y-gw.b.y)**2 + (player.z-gw.b.z)**2);
 
                 let dest = null;
                 if (distA < CONFIG.GATEWAY_INTERACT_RADIUS) dest = gw.b;

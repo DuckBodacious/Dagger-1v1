@@ -637,10 +637,14 @@ function gameLoop(currentTime) {
     // ─── Gateway throw (left-click while in gateway mode) ───
     if (gatewayMode && localPlayer?.alive && inputState.leftClickJust && !gateways.hasInFlight()) {
         gatewayMode = false; // exit mode immediately — cube flies off
+        // Use camera's full 3D direction so pitch is respected (aimed up = stays airborne)
+        const camDir = new THREE.Vector3();
+        renderer.camera.getWorldDirection(camDir);
         gateways.startThrow(
-            localPlayer.x, localPlayer.y, localPlayer.z, localPlayer.yaw,
-            (landX, landZ) => {
-                network.sendRaw({ type: 'throw_gateway', x: landX, y: 0, z: landZ });
+            localPlayer.x, localPlayer.y, localPlayer.z,
+            camDir.x, camDir.y, camDir.z,
+            (landX, landY, landZ) => {
+                network.sendRaw({ type: 'throw_gateway', x: landX, y: landY, z: landZ });
             }
         );
     }
@@ -652,14 +656,14 @@ function gameLoop(currentTime) {
 
     // E key — teleport through nearest linked gateway
     if (localPlayer?.alive && inputState.useGateway) {
-        if (gateways.isNearLinked(localPlayer.x, localPlayer.z)) {
+        if (gateways.isNearLinked(localPlayer.x, localPlayer.y, localPlayer.z)) {
             network.sendRaw({ type: 'use_gateway' });
         }
     }
 
     gateways.update(dt);
     hud.updateGatewayCooldown(gatewayCooldown, gatewayCount, CONFIG.GATEWAY_COOLDOWN,
-        gateways.isNearLinked(localPlayer?.x ?? 0, localPlayer?.z ?? 0));
+        gateways.isNearLinked(localPlayer?.x ?? 0, localPlayer?.y ?? 0, localPlayer?.z ?? 0));
     hud.showRegenIndicator(!!(localPlayer && localPlayer.regenActive));
 
     // ─── Local prediction ───

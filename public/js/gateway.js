@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
-const THROW_H   = 12;  // horizontal m/s
-const THROW_V   = 6;   // initial upward m/s
-const MAX_FLIGHT = 3.0; // safety cap (seconds)
+const THROW_SPEED = 14; // m/s — applied along camera direction
+const THROW_UP    = 3;  // extra upward boost so level shots arc nicely
+const MAX_FLIGHT  = 1.2; // seconds — gateway stops wherever it is after this
 
 export class GatewayManager {
     constructor(scene) {
@@ -92,19 +92,18 @@ export class GatewayManager {
     hasInFlight() { return this._inFlight !== null; }
 
     /**
-     * Start a throw animation. Calls onLand(landX, landZ) when the mesh hits
-     * y ≤ 0 (ground level). Returns false if another throw is already in progress.
+     * Start a throw animation using the camera's full 3D direction (pitch + yaw).
+     * Calls onLand(landX, landY, landZ) when the mesh either hits the floor (y≤0)
+     * or the max flight time expires — whichever comes first.
+     * If the flight time expires while still airborne the gateway stays mid-air.
      */
-    startThrow(playerX, playerY, playerZ, yaw, onLand) {
+    startThrow(playerX, playerY, playerZ, dirX, dirY, dirZ, onLand) {
         if (this._inFlight) return false;
 
-        const fwdX = -Math.sin(yaw);
-        const fwdZ = -Math.cos(yaw);
-
         // Launch from the player's hand (slightly ahead + above center)
-        const sx = playerX + fwdX * 0.6;
-        const sy = playerY + 0.5;   // hand height above player center
-        const sz = playerZ + fwdZ * 0.6;
+        const sx = playerX + dirX * 0.6;
+        const sy = playerY + 0.5;
+        const sz = playerZ + dirZ * 0.6;
 
         const mesh = this._buildInFlightMesh();
         mesh.position.set(sx, sy, sz);
@@ -113,9 +112,9 @@ export class GatewayManager {
         this._inFlight = {
             mesh,
             x: sx, y: sy, z: sz,
-            vx: fwdX * THROW_H,
-            vy: THROW_V,
-            vz: fwdZ * THROW_H,
+            vx: dirX * THROW_SPEED,
+            vy: dirY * THROW_SPEED + THROW_UP, // pitch + upward boost
+            vz: dirZ * THROW_SPEED,
             elapsed: 0,
             onLand,
         };
@@ -163,12 +162,14 @@ export class GatewayManager {
 
     // ── Proximity check ───────────────────────────────────────────────────────
 
-    isNearLinked(px, pz) {
+    isNearLinked(px, py, pz) {
         const r = CONFIG.GATEWAY_INTERACT_RADIUS;
         for (const entry of this.gateways.values()) {
             if (!entry.linked) continue;
-            const dx = px - entry.data.x, dz = pz - entry.data.z;
-            if (Math.sqrt(dx * dx + dz * dz) < r) return true;
+            const dx = px - entry.data.x;
+            const dy = py - entry.data.y;
+            const dz = pz - entry.data.z;
+            if (Math.sqrt(dx * dx + dy * dy + dz * dz) < r) return true;
         }
         return false;
     }
@@ -183,13 +184,11 @@ export class GatewayManager {
             const inf = this._inFlight;
             inf.elapsed += dt;
 
-            inf.vx *= Math.pow(0.6, dt); // mild air drag
-            inf.vz *= Math.pow(0.6, dt);
+            // Pure gravity — no drag (clean parabola like The Finals)
             inf.vy -= CONFIG.GRAVITY * dt;
-
-            inf.x += inf.vx * dt;
-            inf.y += inf.vy * dt;
-            inf.z += inf.vz * dt;
+            inf.x  += inf.vx * dt;
+            inf.y  += inf.vy * dt;
+            inf.z  += inf.vz * dt;
 
             // Clamp to arena bounds
             const half = CONFIG.ARENA_SIZE / 2;
@@ -200,13 +199,19 @@ export class GatewayManager {
             inf.mesh.rotation.y += 6 * dt;
             inf.mesh.rotation.x += 4 * dt;
 
-            // Land when it hits the floor (y ≤ 0.05) or safety timeout
-            if (inf.y <= 0.05 || inf.elapsed >= MAX_FLIGHT) {
-                const lx = inf.x, lz = inf.z;
+            // Stop when floor is hit OR max flight time expires (whichever first).
+            // If time expires while airborne the gateway stays at that height — mid-air.
+            const hitFloor  = inf.y <= 0.05;
+            const timeUp    = inf.elapsed >= MAX_FLIGHT;
+
+            if (hitFloor || timeUp) {
+                const landX = inf.x;
+                const landY = hitFloor ? 0 : Math.max(inf.y, 0); // 0 for floor, actual y for mid-air
+                const landZ = inf.z;
                 const cb = inf.onLand;
                 this.scene.remove(inf.mesh);
                 this._inFlight = null;
-                if (cb) cb(lx, lz);
+                if (cb) cb(landX, landY, landZ);
             }
         }
 
