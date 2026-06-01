@@ -25,6 +25,8 @@ let prevLocalHp = CONFIG.PLAYER_HP;
 let localDashStart = null;  // { x, y, z } for dash trail
 let prevLocalAlive = true;
 let jumpPadCooldown = 0;
+let padMode = false;       // true while player is "holding" the jump pad
+let padHeldMesh = null;    // the pad disc shown in hand during pad mode
 let jumpPads = null;
 let gateways = null;
 let gatewayCooldown = 0;   // client-side mirror of server cooldown (for HUD only)
@@ -94,10 +96,12 @@ network.onGameState = (state) => {
             localPlayer.pitch = 0;
             prevLocalAlive = false; // ensure respawn detection re-arms properly
             gateways?.clear();
-            gatewayCooldown = 0;
-            gatewayCount = 0;
+            gatewayCooldown = 0; gatewayCount = 0;
             gatewayMode = false;
             if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; }
+            padMode = false;
+            if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; }
+            jumpPadCooldown = 0;
         }
 
         // Detect HP change for damage effects
@@ -125,12 +129,11 @@ network.onGameState = (state) => {
 
         // Detect death (alive → dead) — reset gateway state immediately
         if (!serverLocal.alive && prevLocalAlive) {
-            gatewayMode = false;
-            gatewayCooldown = 0;
-            gatewayCount = 0;
+            gatewayMode = false; gatewayCooldown = 0; gatewayCount = 0;
             gateways.cancelInFlight();
             if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; }
-            // Gateway meshes are removed via gateway_expired broadcast from server
+            padMode = false;
+            if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; }
         }
 
         // Detect respawn (dead → alive) — hard sync position from server
@@ -612,7 +615,7 @@ function gameLoop(currentTime) {
     // Include client position + yaw so the server uses the correct position for
     // hit detection instead of its own drifted simulation.
     const serverInput = {
-        ...((carriedObjectId !== null || gatewayMode)
+        ...((carriedObjectId !== null || gatewayMode || padMode)
             ? { ...inputState, primaryAttack: false, chargedAttack: false, elbow: false }
             : inputState),
         px: localPlayer.x,
@@ -625,20 +628,61 @@ function gameLoop(currentTime) {
         network.sendInput(serverInput);
     }
 
-    // ─── Jump Pad placement ───
+    // ─── Jump Pad mode toggle ([2]) ───
     if (jumpPadCooldown > 0) jumpPadCooldown -= dt;
 
-    if (localPlayer?.alive && inputState.holdingPad && jumpPadCooldown <= 0) {
+    if (inputState.digit2Just && localPlayer?.alive) {
+        if (padMode) {
+            padMode = false;
+        } else if (jumpPadCooldown <= 0) {
+            padMode = true;
+        }
+    }
+    if (padMode && (!localPlayer?.alive || jumpPadCooldown > 0)) padMode = false;
+
+    // ─── Held jump pad mesh (shown in first-person while in pad mode) ───
+    if (padMode && localPlayer?.alive) {
+        if (!padHeldMesh) {
+            const group = new THREE.Group();
+            // Orange base disc
+            const baseMat = new THREE.MeshStandardMaterial({
+                color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 0.35,
+                metalness: 0.3, roughness: 0.5,
+            });
+            group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 24), baseMat));
+            // Dark blue ring on top
+            const ringMat = new THREE.MeshStandardMaterial({
+                color: 0x1a3a8f, emissive: 0x1a3a8f, emissiveIntensity: 0.6,
+            });
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.014, 8, 32), ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = 0.025;
+            group.add(ring);
+            padHeldMesh = group;
+            renderer.scene.add(padHeldMesh);
+        }
+        const cam   = renderer.camera;
+        const fwd   = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+        const up    = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+        padHeldMesh.position.copy(cam.position)
+            .addScaledVector(fwd,   0.55)
+            .addScaledVector(right, 0.22)
+            .addScaledVector(up,   -0.18);
+        padHeldMesh.rotation.copy(cam.rotation);
+    } else if (padHeldMesh) {
+        renderer.scene.remove(padHeldMesh);
+        padHeldMesh = null;
+    }
+
+    // ─── Raycast preview + placement ───
+    if (padMode && localPlayer?.alive) {
         const hit = jumpPads.getPlacementTarget(renderer.camera);
         jumpPads.updatePreview(hit);
-
-        if (inputState.placePadClick && hit) {
-            network.sendRaw({
-                type: 'place_jumppad',
-                x: hit.x, y: hit.y, z: hit.z,
-                nx: hit.nx, ny: hit.ny, nz: hit.nz,
-            });
+        if (inputState.leftClickJust && hit) {
+            network.sendRaw({ type: 'place_jumppad', x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz });
             jumpPadCooldown = CONFIG.JUMP_PAD_COOLDOWN;
+            padMode = false;
             jumpPads.updatePreview(null);
         }
     } else {
