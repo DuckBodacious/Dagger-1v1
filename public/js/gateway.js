@@ -16,7 +16,7 @@ export class GatewayManager {
 
     // ── Visuals ──────────────────────────────────────────────────────────────
 
-    /** Black square panel — unlinked gateway resting on the floor */
+    /** Black cube — unlinked gateway resting on the floor */
     _buildUnlinked() {
         const group = new THREE.Group();
         const mat = new THREE.MeshStandardMaterial({
@@ -24,13 +24,12 @@ export class GatewayManager {
             emissive: 0x000000,
             metalness: 0.9,
             roughness: 0.2,
-            side: THREE.DoubleSide,
         });
-        const geo  = new THREE.PlaneGeometry(0.72, 0.72);
+        const geo  = new THREE.BoxGeometry(0.45, 0.45, 0.45);
         const mesh = new THREE.Mesh(geo, mat);
-        // Slightly tilted, floating just above the floor
-        mesh.rotation.x = -Math.PI / 10;
-        mesh.position.y  = 0.38;
+        // Float just above the floor, slightly rotating for visibility
+        mesh.position.y = 0.38;
+        mesh.rotation.y = Math.PI / 6;
         group.add(mesh);
         return group;
     }
@@ -77,16 +76,15 @@ export class GatewayManager {
         return group;
     }
 
-    /** Small black square spinning through the air */
+    /** Small black cube spinning through the air */
     _buildInFlightMesh() {
         const mat = new THREE.MeshStandardMaterial({
             color: 0x111111,
             emissive: 0x000000,
             metalness: 0.9,
             roughness: 0.2,
-            side: THREE.DoubleSide,
         });
-        return new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), mat);
+        return new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), mat);
     }
 
     // ── Throw physics ─────────────────────────────────────────────────────────
