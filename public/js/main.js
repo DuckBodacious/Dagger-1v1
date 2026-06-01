@@ -449,12 +449,15 @@ function updateLobbyUI() {
         document.getElementById('bots-display').textContent = lobbyState.botCount ?? 1;
         document.getElementById('goal-display').textContent = lobbyState.killGoal ?? 10;
 
-        // Enable/disable start based on all non-host players being ready
+        // Enable/disable start based on all non-host players being ready AND enough total players
         const nonHostPlayers = (lobbyState.players || []).filter(p => !p.isHost);
         const allReady = nonHostPlayers.length === 0 || nonHostPlayers.every(p => p.ready);
-        if (!startBtn.disabled) {
-            startBtn.disabled = !allReady;
-            startBtn.textContent = allReady ? 'START GAME' : 'WAITING FOR PLAYERS…';
+        const enoughPlayers = (lobbyState.humanSlots || 1) + (lobbyState.botCount || 0) >= 2;
+        if (!startBtn.disabled || startBtn.textContent === 'WAITING FOR PLAYERS…' || startBtn.textContent === 'NEED 2+ PLAYERS') {
+            startBtn.disabled = !allReady || !enoughPlayers;
+            if (!enoughPlayers) startBtn.textContent = 'NEED 2+ PLAYERS';
+            else if (!allReady)  startBtn.textContent = 'WAITING FOR PLAYERS…';
+            else                 startBtn.textContent = 'START GAME';
         }
 
         buildColorSwatches('color-swatches-host');
@@ -481,51 +484,59 @@ function updateLobbyUI() {
     }
 }
 
-// Counter buttons (host only)
+// Counter buttons (host only) — always send the full config so server stays in sync
+function sendFullConfig() {
+    network.sendLobbyConfig({
+        humanSlots: lobbyState.humanSlots,
+        botCount:   lobbyState.botCount,
+        killGoal:   lobbyState.killGoal,
+    });
+}
 function clampLobbyConfig() {
-    const maxBots = 4 - lobbyState.humanSlots;
-    if (lobbyState.botCount > maxBots) lobbyState.botCount = Math.max(0, maxBots);
+    const maxBots = 4 - (lobbyState.humanSlots || 1);
+    lobbyState.botCount = Math.max(0, Math.min(lobbyState.botCount || 0, maxBots));
 }
 
 document.getElementById('humans-minus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.humanSlots = Math.max(1, (lobbyState.humanSlots || 1) - 1);
     clampLobbyConfig();
-    network.sendLobbyConfig({ humanSlots: lobbyState.humanSlots, botCount: lobbyState.botCount });
+    sendFullConfig();
     updateLobbyUI();
 });
 document.getElementById('humans-plus')?.addEventListener('click', () => {
     if (!isHost) return;
-    const newVal = Math.min(4, (lobbyState.humanSlots || 1) + 1);
-    if (newVal + (lobbyState.botCount || 0) > 4) return; // total cap
-    lobbyState.humanSlots = newVal;
-    network.sendLobbyConfig({ humanSlots: lobbyState.humanSlots });
+    const total = (lobbyState.humanSlots || 1) + (lobbyState.botCount || 0);
+    if (total >= 4) return; // already at cap
+    lobbyState.humanSlots = Math.min(4, (lobbyState.humanSlots || 1) + 1);
+    clampLobbyConfig();
+    sendFullConfig();
     updateLobbyUI();
 });
 document.getElementById('bots-minus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.botCount = Math.max(0, (lobbyState.botCount || 0) - 1);
-    network.sendLobbyConfig({ botCount: lobbyState.botCount });
+    sendFullConfig();
     updateLobbyUI();
 });
 document.getElementById('bots-plus')?.addEventListener('click', () => {
     if (!isHost) return;
-    const newBots = Math.min(3, (lobbyState.botCount || 0) + 1);
-    if ((lobbyState.humanSlots || 1) + newBots > 4) return; // total cap
-    lobbyState.botCount = newBots;
-    network.sendLobbyConfig({ botCount: lobbyState.botCount });
+    const total = (lobbyState.humanSlots || 1) + (lobbyState.botCount || 0);
+    if (total >= 4) return; // already at cap
+    lobbyState.botCount = Math.min(3, (lobbyState.botCount || 0) + 1);
+    sendFullConfig();
     updateLobbyUI();
 });
 document.getElementById('goal-minus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.killGoal = Math.max(1, (lobbyState.killGoal || 10) - 1);
-    network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
+    sendFullConfig();
     updateLobbyUI();
 });
 document.getElementById('goal-plus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.killGoal = Math.min(100, (lobbyState.killGoal || 10) + 1);
-    network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
+    sendFullConfig();
     updateLobbyUI();
 });
 

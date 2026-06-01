@@ -1957,10 +1957,9 @@ function handleMessage(playerId, msg) {
             killGoal = lobbyConfig.killGoal;
             console.log(`[Server] Host starting game (goal: ${killGoal})`);
 
-            // Remove any leftover bots from previous game
-            for (const [pid, p] of players) {
-                if (p.isBot) players.delete(pid);
-            }
+            // Remove any leftover bots from previous game (collect IDs first — safe iteration)
+            const staleBotsIds = Array.from(players.values()).filter(p => p.isBot).map(p => p.id);
+            for (const bid of staleBotsIds) players.delete(bid);
 
             // Mark all humans ready
             for (const p of players.values()) {
