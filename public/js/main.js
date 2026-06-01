@@ -584,16 +584,21 @@ function gameLoop(currentTime) {
 
     hud.updateJumpPadCooldown(Math.max(0, jumpPadCooldown), CONFIG.JUMP_PAD_COOLDOWN);
 
-    // ─── Gateway placement & use ───
-    if (localPlayer?.alive && inputState.holdingGateway && gatewayCooldown <= 0) {
-        const hit = gateways.getPlacementTarget(renderer.camera);
-        gateways.updatePreview(hit);
-        if (inputState.throwGatewayClick && hit) {
-            network.sendRaw({ type: 'throw_gateway', x: hit.x, y: hit.y, z: hit.z });
-            gateways.updatePreview(null);
-        }
-    } else {
-        gateways.updatePreview(null);
+    // ─── Gateway throw ───
+    // Allow throw when: alive, holding Q, cooldown expired, fewer than 2 placed, nothing in flight
+    if (localPlayer?.alive && inputState.throwGatewayClick
+            && gatewayCooldown <= 0 && gatewayCount < 2 && !gateways.hasInFlight()) {
+        gateways.startThrow(
+            localPlayer.x, localPlayer.y, localPlayer.z, localPlayer.yaw,
+            (landX, landZ) => {
+                network.sendRaw({ type: 'throw_gateway', x: landX, y: 0, z: landZ });
+            }
+        );
+    }
+
+    // Cancel in-flight throw if player died
+    if (!localPlayer?.alive && gateways.hasInFlight()) {
+        gateways.cancelInFlight();
     }
 
     // E key — teleport through nearest linked gateway

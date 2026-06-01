@@ -8,6 +8,7 @@ export class InputManager {
         this.mouseDeltaX = 0;
         this.mouseDeltaY = 0;
         this.leftClick = false;
+        this.leftClickJust = false; // one-shot — true only on the first frame of a click
         this.rightClick = false;
         this.rightClickHeld = false;
         this.middleClick = false;
@@ -57,7 +58,7 @@ export class InputManager {
         this.canvas.addEventListener('mousedown', (e) => {
             if (!this.pointerLocked) return;
             e.preventDefault();
-            if (e.button === 0) this.leftClick = true;
+            if (e.button === 0) { this.leftClick = true; this.leftClickJust = true; }
             if (e.button === 1) this.middleClick = true;  // Middle mouse
             if (e.button === 2) {
                 this.rightClick = true;
@@ -109,7 +110,7 @@ export class InputManager {
             placePadClick: holdingPad ? this.leftClick : false,
             holdingGateway,
             // One-shot: left click while holding gateway key
-            throwGatewayClick: holdingGateway ? this.leftClick : false,
+            throwGatewayClick: holdingGateway ? this.leftClickJust : false,
             // Pickup / throw / drop
             interact: this.fKeyJust,
             // Gateway teleport
@@ -124,6 +125,7 @@ export class InputManager {
         this.scrollDown = false;
         this.middleClick = false;
         this.rightClick = false;
+        this.leftClickJust = false;
         this.fKeyJust = false;
         this.eKeyJust = false;
 
