@@ -2630,35 +2630,46 @@ function processCombat(player, input) {
     }
 
     if (player.attackState === 'charged_attack') {
-        for (const other of players.values()) {
-            if (other.id === player.id || !other.alive) continue;
-            const dx = other.x - player.x;
-            const dy = other.y - player.y;
-            const dz = other.z - player.z;
-            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // Hitbox is active for exactly 5 server frames from the moment the attack fires.
+        // If no target is found within that window, the attack misses entirely.
+        const HITBOX_FRAMES = 5;
+        const hitboxWindow  = HITBOX_FRAMES / CONFIG.SERVER_TICK_RATE; // ≈ 0.083 s at 60 Hz
 
-            if (dist < CONFIG.CHARGED_RANGE) {
-                // Attacker must be roughly facing the target (~75° cone)
-                const nx = dx / dist, nz = dz / dist;
-                const fwdDot = (-Math.sin(player.yaw)) * nx + (-Math.cos(player.yaw)) * nz;
-                if (fwdDot <= 0.25) break; // not facing target — miss
+        if (player.attackTime >= hitboxWindow) {
+            // Window has closed — lock out to prevent late hits during the animation tail
+            player.attackHitRegistered = true;
+        } else {
+            // Window is open — scan for the first valid target this frame
+            for (const other of players.values()) {
+                if (other.id === player.id || !other.alive) continue;
+                const dx = other.x - player.x;
+                const dy = other.y - player.y;
+                const dz = other.z - player.z;
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-                // Backstab: dot of target's forward with direction-from-target-to-attacker
-                const toAttX = player.x - other.x;
-                const toAttZ = player.z - other.z;
-                const toAttLen = Math.sqrt(toAttX * toAttX + toAttZ * toAttZ);
-                const targetFwdX = -Math.sin(other.yaw);
-                const targetFwdZ = -Math.cos(other.yaw);
-                const backDot = toAttLen > 0.01
-                    ? (targetFwdX * (toAttX / toAttLen) + targetFwdZ * (toAttZ / toAttLen))
-                    : 1;
-                isBackstab = backDot < 0.0; // ±90° from behind (25% wider than default ±72.5°)
+                if (dist < CONFIG.CHARGED_RANGE) {
+                    // Attacker must be roughly facing the target (~75° cone)
+                    const nx = dx / dist, nz = dz / dist;
+                    const fwdDot = (-Math.sin(player.yaw)) * nx + (-Math.cos(player.yaw)) * nz;
+                    if (fwdDot <= 0.25) break; // not facing — miss
 
-                hitDamage = isBackstab ? CONFIG.CHARGED_DAMAGE_BACK : CONFIG.CHARGED_DAMAGE_FRONT;
-                hitPlayerId = other.id;
-                other.hp -= hitDamage;
-                other.regenTimer = 0;
-                break;
+                    // Backstab: is attacker coming from behind the target?
+                    const toAttX = player.x - other.x;
+                    const toAttZ = player.z - other.z;
+                    const toAttLen = Math.sqrt(toAttX * toAttX + toAttZ * toAttZ);
+                    const targetFwdX = -Math.sin(other.yaw);
+                    const targetFwdZ = -Math.cos(other.yaw);
+                    const backDot = toAttLen > 0.01
+                        ? (targetFwdX * (toAttX / toAttLen) + targetFwdZ * (toAttZ / toAttLen))
+                        : 1;
+                    isBackstab = backDot < 0.0; // ±90° arc behind target
+
+                    hitDamage  = isBackstab ? CONFIG.CHARGED_DAMAGE_BACK : CONFIG.CHARGED_DAMAGE_FRONT;
+                    hitPlayerId = other.id;
+                    other.hp  -= hitDamage;
+                    other.regenTimer = 0;
+                    break; // only one target per attack
+                }
             }
         }
     }
