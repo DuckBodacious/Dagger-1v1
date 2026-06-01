@@ -25,6 +25,7 @@ let prevLocalHp = CONFIG.PLAYER_HP;
 let localDashStart = null;  // { x, y, z } for dash trail
 let prevLocalAlive = true;
 let jumpPadCooldown = 0;
+let padHeldMesh = null;    // the pad disc shown in hand while holding [2]
 let jumpPads = null;
 let gateways = null;
 let gatewayCooldown = 0;   // client-side mirror of server cooldown (for HUD only)
@@ -570,6 +571,41 @@ function gameLoop(currentTime) {
     if (jumpPadCooldown > 0) jumpPadCooldown -= dt;
 
     if (localPlayer?.alive && inputState.holdingPad && jumpPadCooldown <= 0) {
+        // ── Held pad mesh ──────────────────────────────────────────────────────
+        if (!padHeldMesh) {
+            const group = new THREE.Group();
+            // Gray base disc — matches the ground pad colour exactly
+            const baseMat = new THREE.MeshStandardMaterial({
+                color: 0x333333, emissive: 0x333333, emissiveIntensity: 0.4,
+                metalness: 0.3, roughness: 0.5,
+            });
+            group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.07, 32), baseMat));
+            // Dark blue rings
+            const ringMat = new THREE.MeshStandardMaterial({
+                color: 0x1a3a8f, emissive: 0x1a3a8f, emissiveIntensity: 0.7,
+                metalness: 0.5, roughness: 0.3,
+            });
+            const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.055, 12, 48), ringMat);
+            outerRing.rotation.x = Math.PI / 2; outerRing.position.y = 0.06;
+            group.add(outerRing);
+            const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 12, 48), ringMat);
+            innerRing.rotation.x = Math.PI / 2; innerRing.position.y = 0.06;
+            group.add(innerRing);
+            group.scale.setScalar(0.28); // scale to hand size
+            padHeldMesh = group;
+            renderer.scene.add(padHeldMesh);
+        }
+        const cam   = renderer.camera;
+        const fwd   = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+        const up    = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+        padHeldMesh.position.copy(cam.position)
+            .addScaledVector(fwd,   0.55)
+            .addScaledVector(right, 0.22)
+            .addScaledVector(up,   -0.18);
+        padHeldMesh.rotation.copy(cam.rotation);
+
+        // ── Raycast preview + placement ────────────────────────────────────────
         const hit = jumpPads.getPlacementTarget(renderer.camera);
         jumpPads.updatePreview(hit);
 
@@ -584,6 +620,7 @@ function gameLoop(currentTime) {
         }
     } else {
         jumpPads.updatePreview(null);
+        if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; }
     }
 
     hud.updateJumpPadCooldown(Math.max(0, jumpPadCooldown), CONFIG.JUMP_PAD_COOLDOWN);
