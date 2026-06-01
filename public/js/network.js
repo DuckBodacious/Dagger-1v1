@@ -19,6 +19,7 @@ export class NetworkClient {
         this.onDestruction = null;
         this.onJumpPadEvent = null;
         this.onObjectEvent = null;
+        this.onGatewayEvent = null;
         this.onLobbyState = null;
         this.onPromotedToHost = null;
     }
@@ -110,6 +111,13 @@ export class NetworkClient {
             case 'object_thrown':
             case 'object_landed':
                 if (this.onObjectEvent) this.onObjectEvent(msg);
+                break;
+
+            case 'gateway_placed':
+            case 'gateway_linked':
+            case 'gateway_expired':
+            case 'gateway_teleport':
+                if (this.onGatewayEvent) this.onGatewayEvent(msg);
                 break;
         }
     }

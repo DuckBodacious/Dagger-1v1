@@ -268,6 +268,61 @@ body {
     opacity: 0.85;
 }
 
+/* ─── Gateway Display ─── */
+#gateway-display {
+    position: absolute;
+    bottom: 105px;
+    right: 30px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#gateway-cooldown-bar {
+    width: 60px;
+    height: 6px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+#gateway-cooldown-fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #00aaff, #00eeff);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+}
+
+#gateway-cooldown-text {
+    font-size: 10px;
+    font-weight: 600;
+    color: #00ccff;
+    min-width: 36px;
+    opacity: 0.85;
+}
+
+#gateway-count {
+    font-size: 12px;
+    color: #00eeff;
+    letter-spacing: 2px;
+    opacity: 0.9;
+}
+
+#gateway-interact-prompt {
+    position: fixed;
+    top: 57%;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #00eeff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px rgba(0,200,255,0.8);
+    pointer-events: none;
+    z-index: 20;
+}
+
 /* ─── Score Bar ─── */
 #score-bar {
     position: absolute;

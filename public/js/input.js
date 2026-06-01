@@ -16,6 +16,7 @@ export class InputManager {
         this.thumbButton = false;
         this.pointerLocked = false;
         this.fKeyJust = false;
+        this.eKeyJust = false;
 
         // Double-tap tracking not needed here (no drop-through)
 
@@ -26,6 +27,7 @@ export class InputManager {
         // Keyboard
         window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyF' && !this.keys['KeyF']) this.fKeyJust = true;
+            if (e.code === 'KeyE' && !this.keys['KeyE']) this.eKeyJust = true;
             this.keys[e.code] = true;
         });
 
@@ -84,7 +86,8 @@ export class InputManager {
 
     // Get current input snapshot to send to server
     getInputState() {
-        const holdingPad = this.keys['Digit2'] || false;
+        const holdingPad     = this.keys['Digit2'] || false;
+        const holdingGateway = this.keys['KeyQ']   || false;
         const input = {
             forward: this.keys['KeyW'] || false,
             backward: this.keys['KeyS'] || false,
@@ -93,8 +96,8 @@ export class InputManager {
             jump: this.keys['Space'] || this.scrollDown || false,
             crouch: this.keys['ControlLeft'] || false,
             dash: this.keys['ShiftLeft'] || false,
-            // Suppress primary attack while in pad placement mode
-            primaryAttack: holdingPad ? false : this.leftClick,
+            // Suppress primary attack while in pad/gateway placement mode
+            primaryAttack: (holdingPad || holdingGateway) ? false : this.leftClick,
             chargedAttack: this.rightClickHeld,
             elbow: this.scrollUp,
             ability1: this.middleClick,   // Middle mouse — reserved
@@ -104,8 +107,13 @@ export class InputManager {
             holdingPad,
             // One-shot: left click while holding pad key
             placePadClick: holdingPad ? this.leftClick : false,
+            holdingGateway,
+            // One-shot: left click while holding gateway key
+            throwGatewayClick: holdingGateway ? this.leftClick : false,
             // Pickup / throw / drop
             interact: this.fKeyJust,
+            // Gateway teleport
+            useGateway: this.eKeyJust,
             rightClickJust: this.rightClick,
         };
 
@@ -117,6 +125,7 @@ export class InputManager {
         this.middleClick = false;
         this.rightClick = false;
         this.fKeyJust = false;
+        this.eKeyJust = false;
 
         return input;
     }

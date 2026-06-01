@@ -81,6 +81,10 @@ const CONFIG = {
     JUMP_PAD_TRIGGER_RADIUS: 0.9,
     JUMP_PAD_RETRIGGER_DELAY: 3.0,
 
+    GATEWAY_DURATION: 20.0,
+    GATEWAY_COOLDOWN: 30.0,
+    GATEWAY_INTERACT_RADIUS: 1.5,
+
     EXPLOSIVE_DAMAGE: 80,
     EXPLOSIVE_RADIUS: 4.0,
     EXPLOSIVE_BARREL_HP: 30,
@@ -389,6 +393,9 @@ class ServerPlayer {
         this.carriedObjectId = null;
         this.jumpPadCooldown = 0;
 
+        this.gatewayCooldown = 0;  // seconds until player can throw gateways again
+        this.gatewayCount = 0;     // 0=none, 1=one placed, 2=both placed
+
         this.isBot = false;
         this.botAI = null;
     }
@@ -410,6 +417,8 @@ class ServerPlayer {
             lastProcessedInput: this.lastProcessedInput,
             regenActive: this.regenTimer >= 5.0 && this.hp < CONFIG.PLAYER_HP,
             carriedObjectId: this.carriedObjectId,
+            gatewayCooldown: this.gatewayCooldown,
+            gatewayCount: this.gatewayCount,
         };
     }
 }
@@ -1731,6 +1740,15 @@ function handleDisconnect(playerId) {
         JUMP_PADS.delete(playerId);
     }
 
+    // Remove any gateways placed by this player
+    if (GATEWAYS.has(playerId)) {
+        const gw = GATEWAYS.get(playerId);
+        if (gw.a || gw.b) {
+            broadcast({ type: 'gateway_expired', ownerId: playerId, aId: gw.a?.id, bId: gw.b?.id });
+        }
+        GATEWAYS.delete(playerId);
+    }
+
     // Remove all bots (game reset on any disconnect)
     const botIds = Array.from(players.values()).filter(p => p.isBot).map(p => p.id);
     for (const botId of botIds) {
@@ -2045,6 +2063,62 @@ function handleMessage(playerId, msg) {
             });
             break;
         }
+
+        case 'throw_gateway': {
+            if (!player.alive) break;
+            if (player.gatewayCooldown > 0) break;
+
+            const half = CONFIG.ARENA_SIZE / 2 + 2;
+            if (Math.abs(msg.x) > half || Math.abs(msg.z) > half) break;
+
+            let gw = GATEWAYS.get(playerId) || { a: null, b: null, timer: 0 };
+
+            if (!gw.a) {
+                // Place first (unlinked) gateway
+                const id = ++gatewayIdCounter;
+                gw.a = { id, x: msg.x, y: msg.y, z: msg.z };
+                GATEWAYS.set(playerId, gw);
+                player.gatewayCount = 1;
+                broadcast({ type: 'gateway_placed', id, ownerId: playerId, x: msg.x, y: msg.y, z: msg.z, linked: false });
+            } else if (!gw.b) {
+                // Place second gateway — link both and start timers
+                const id = ++gatewayIdCounter;
+                gw.b = { id, x: msg.x, y: msg.y, z: msg.z };
+                gw.timer = CONFIG.GATEWAY_DURATION;
+                GATEWAYS.set(playerId, gw);
+                player.gatewayCount = 2;
+                player.gatewayCooldown = CONFIG.GATEWAY_COOLDOWN;
+                broadcast({ type: 'gateway_placed', id, ownerId: playerId, x: msg.x, y: msg.y, z: msg.z, linked: true });
+                broadcast({ type: 'gateway_linked', ownerId: playerId, aId: gw.a.id });
+            }
+            break;
+        }
+
+        case 'use_gateway': {
+            if (!player.alive) break;
+
+            for (const [ownerId, gw] of GATEWAYS) {
+                if (!gw.a || !gw.b || gw.timer <= 0) continue;
+
+                const distA = Math.sqrt((player.x - gw.a.x) ** 2 + (player.z - gw.a.z) ** 2);
+                const distB = Math.sqrt((player.x - gw.b.x) ** 2 + (player.z - gw.b.z) ** 2);
+
+                let dest = null;
+                if (distA < CONFIG.GATEWAY_INTERACT_RADIUS) dest = gw.b;
+                else if (distB < CONFIG.GATEWAY_INTERACT_RADIUS) dest = gw.a;
+
+                if (dest) {
+                    player.x = dest.x;
+                    player.y = dest.y + CONFIG.PLAYER_HEIGHT / 2;
+                    player.z = dest.z;
+                    player.vx = 0; player.vy = 0; player.vz = 0;
+                    player.respawnProtect = 0.6; // suppress stale client position
+                    broadcast({ type: 'gateway_teleport', playerId, toX: dest.x, toY: dest.y, toZ: dest.z });
+                    break;
+                }
+            }
+            break;
+        }
     }
 }
 
@@ -2108,6 +2182,7 @@ function checkGameStart() {
             if (p.isBot && p.botAI) p.botAI.reset();
         }
 
+        clearGateways();
         broadcast({ type: 'game_start', killGoal });
         console.log(`[Server] Game started! Kill goal: ${killGoal}`);
     }
@@ -2115,6 +2190,56 @@ function checkGameStart() {
 
 const JUMP_PADS = new Map();
 let jumpPadIdCounter = 0;
+
+// ─── Gateway system ─────────────────────────────────────────────────────────
+// playerId → { a: {id,x,y,z}|null, b: {id,x,y,z}|null, timer: seconds }
+const GATEWAYS = new Map();
+let gatewayIdCounter = 0;
+
+function updateGateways(dt) {
+    for (const [ownerId, gw] of GATEWAYS) {
+        const owner = players.get(ownerId);
+
+        // Tick cooldown on owner
+        if (owner && owner.gatewayCooldown > 0) {
+            owner.gatewayCooldown = Math.max(0, owner.gatewayCooldown - dt);
+        }
+
+        // Tick portal lifetime (only when both are placed)
+        if (gw.a && gw.b && gw.timer > 0) {
+            gw.timer -= dt;
+            if (gw.timer <= 0) {
+                gw.timer = 0;
+                broadcast({ type: 'gateway_expired', ownerId, aId: gw.a.id, bId: gw.b.id });
+                gw.a = null;
+                gw.b = null;
+                if (owner) owner.gatewayCount = 0;
+            }
+        }
+
+        // Clean up stale entries with no portals and no cooldown
+        if (!gw.a && !gw.b && (!owner || owner.gatewayCooldown <= 0)) {
+            GATEWAYS.delete(ownerId);
+        }
+    }
+}
+
+function clearGateways() {
+    for (const gw of GATEWAYS.values()) {
+        if (gw.a || gw.b) {
+            const aId = gw.a?.id, bId = gw.b?.id;
+            if (aId !== undefined || bId !== undefined) {
+                broadcast({ type: 'gateway_expired', aId, bId });
+            }
+        }
+    }
+    GATEWAYS.clear();
+    for (const p of players.values()) {
+        p.gatewayCooldown = 0;
+        p.gatewayCount = 0;
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function updateJumpPads(dt) {
     for (const pad of JUMP_PADS.values()) {
@@ -2618,6 +2743,7 @@ function updateGame(dt) {
     }
 
     updateJumpPads(dt);
+    updateGateways(dt);
 
     // Generate bot inputs before processing all players
     for (const player of players.values()) {
@@ -2670,6 +2796,7 @@ function updateGame(dt) {
                 broadcast({ type: 'jumppad_removed', id: pad.id });
             }
             JUMP_PADS.clear();
+            clearGateways();
             broadcastLobbyState();
             break;
         }

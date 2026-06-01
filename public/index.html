@@ -56,11 +56,19 @@
             </div>
         </div>
 
-        <!-- Jump Pad Cooldown (above dash) -->
+        <!-- Jump Pad Cooldown -->
         <div id="pad-display">
             <span class="pad-label">PAD [2]</span>
             <div id="pad-cooldown-bar"><div id="pad-cooldown-fill"></div></div>
             <span id="pad-cooldown-text">READY</span>
+        </div>
+
+        <!-- Gateway Cooldown -->
+        <div id="gateway-display">
+            <span class="pad-label">GATEWAY [Q]</span>
+            <div id="gateway-cooldown-bar"><div id="gateway-cooldown-fill"></div></div>
+            <span id="gateway-cooldown-text">READY</span>
+            <span id="gateway-count"></span>
         </div>
 
         <!-- Score (top center) -->
@@ -83,6 +91,9 @@
         <!-- Floating Damage Numbers -->
         <div id="damage-numbers"></div>
     </div>
+
+    <!-- Gateway interact prompt -->
+    <div id="gateway-interact-prompt" style="display:none;">[E] Teleport</div>
 
     <!-- Damage Vignette (red flash on taking damage) -->
     <div id="damage-vignette" style="display: none;"></div>

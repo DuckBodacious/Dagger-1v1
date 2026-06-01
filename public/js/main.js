@@ -12,6 +12,7 @@ import { checkCollision } from './arena.js';
 import { DestructibleManager } from './destructible.js';
 import { AudioManager } from './audio.js';
 import { JumpPadManager } from './jumppad.js';
+import { GatewayManager } from './gateway.js';
 
 // ─── Game State ───
 let localPlayer = null;
@@ -25,6 +26,9 @@ let localDashStart = null;  // { x, y, z } for dash trail
 let prevLocalAlive = true;
 let jumpPadCooldown = 0;
 let jumpPads = null;
+let gateways = null;
+let gatewayCooldown = 0;   // client-side mirror of server cooldown (for HUD only)
+let gatewayCount = 0;      // 0=none, 1=first placed, 2=both placed
 
 // ─── Lobby State ───
 let isHost = false;
@@ -46,6 +50,7 @@ const effects = new EffectsManager(renderer.scene, renderer.camera);
 const destructibles = new DestructibleManager(renderer.scene, effects);
 destructibles.registerFromArena(renderer.arenaData?.meshes || []);
 jumpPads = new JumpPadManager(renderer.scene);
+gateways = new GatewayManager(renderer.scene);
 const audio = new AudioManager();
 
 // Initialize audio on first user interaction (browser autoplay policy)
@@ -86,6 +91,9 @@ network.onGameState = (state) => {
             localPlayer.yaw = serverLocal.yaw;
             localPlayer.pitch = 0;
             prevLocalAlive = false; // ensure respawn detection re-arms properly
+            gateways?.clear();
+            gatewayCooldown = 0;
+            gatewayCount = 0;
         }
 
         // Detect HP change for damage effects
@@ -140,6 +148,8 @@ network.onGameState = (state) => {
         localPlayer.chargeTimer = serverLocal.chargeTimer;
         localPlayer.regenActive = serverLocal.regenActive || false;
         localPlayer.crouching = serverLocal.crouching;
+        gatewayCooldown = serverLocal.gatewayCooldown ?? 0;
+        gatewayCount    = serverLocal.gatewayCount    ?? 0;
 
         // Sync carried object id from server
         const prevCarried = carriedObjectId;
@@ -276,6 +286,27 @@ network.onDestruction = (msg) => {
         audio.playExplosion(msg.x, msg.y, msg.z);
     } else if (msg.action === 'goo') {
         audio.playGoo(msg.x, msg.y || 0, msg.z);
+    }
+};
+
+network.onGatewayEvent = (msg) => {
+    if (!gateways) return;
+    if (msg.type === 'gateway_placed') {
+        gateways.onGatewayPlaced(msg);
+        if (msg.ownerId === localPlayer?.id) gatewayCount = msg.linked ? 2 : 1;
+    } else if (msg.type === 'gateway_linked') {
+        gateways.onGatewayLinked(msg.aId);
+    } else if (msg.type === 'gateway_expired') {
+        gateways.onGatewayExpired(msg.aId, msg.bId);
+        if (msg.ownerId === localPlayer?.id) gatewayCount = 0;
+    } else if (msg.type === 'gateway_teleport') {
+        if (msg.playerId === localPlayer?.id && localPlayer) {
+            // Snap local player to teleport destination
+            localPlayer.x = msg.toX;
+            localPlayer.y = msg.toY + CONFIG.PLAYER_HEIGHT / 2;
+            localPlayer.z = msg.toZ;
+            localPlayer.vx = 0; localPlayer.vy = 0; localPlayer.vz = 0;
+        }
     }
 };
 
@@ -552,6 +583,29 @@ function gameLoop(currentTime) {
     }
 
     hud.updateJumpPadCooldown(Math.max(0, jumpPadCooldown), CONFIG.JUMP_PAD_COOLDOWN);
+
+    // ─── Gateway placement & use ───
+    if (localPlayer?.alive && inputState.holdingGateway && gatewayCooldown <= 0) {
+        const hit = gateways.getPlacementTarget(renderer.camera);
+        gateways.updatePreview(hit);
+        if (inputState.throwGatewayClick && hit) {
+            network.sendRaw({ type: 'throw_gateway', x: hit.x, y: hit.y, z: hit.z });
+            gateways.updatePreview(null);
+        }
+    } else {
+        gateways.updatePreview(null);
+    }
+
+    // E key — teleport through nearest linked gateway
+    if (localPlayer?.alive && inputState.useGateway) {
+        if (gateways.isNearLinked(localPlayer.x, localPlayer.z)) {
+            network.sendRaw({ type: 'use_gateway' });
+        }
+    }
+
+    gateways.update(dt);
+    hud.updateGatewayCooldown(gatewayCooldown, gatewayCount, CONFIG.GATEWAY_COOLDOWN,
+        gateways.isNearLinked(localPlayer?.x ?? 0, localPlayer?.z ?? 0));
     hud.showRegenIndicator(!!(localPlayer && localPlayer.regenActive));
 
     // ─── Local prediction ───

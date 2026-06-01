@@ -31,7 +31,33 @@ export class HUD {
         this.respawnTimerEl = document.getElementById('respawn-timer');
         this.padCooldownFill = document.getElementById('pad-cooldown-fill');
         this.padCooldownText = document.getElementById('pad-cooldown-text');
+        this.gatewayCooldownFill = document.getElementById('gateway-cooldown-fill');
+        this.gatewayCooldownText = document.getElementById('gateway-cooldown-text');
+        this.gatewayCountEl = document.getElementById('gateway-count');
+        this.gatewayInteractPrompt = document.getElementById('gateway-interact-prompt');
         this.regenIndicator = document.getElementById('regen-indicator');
+    }
+
+    updateGatewayCooldown(remaining, count, total, nearGateway) {
+        // Cooldown bar
+        if (this.gatewayCooldownFill) {
+            if (remaining <= 0) {
+                this.gatewayCooldownFill.style.width = '100%';
+                this.gatewayCooldownText.textContent = count === 0 ? 'READY' : count === 1 ? '1 PLACED' : 'LINKED';
+            } else {
+                const pct = Math.max(0, 1 - remaining / total) * 100;
+                this.gatewayCooldownFill.style.width = `${pct}%`;
+                this.gatewayCooldownText.textContent = `${remaining.toFixed(1)}s`;
+            }
+        }
+        // Portals placed indicator
+        if (this.gatewayCountEl) {
+            this.gatewayCountEl.textContent = count > 0 ? `⬡`.repeat(count) : '';
+        }
+        // E-key interact prompt
+        if (this.gatewayInteractPrompt) {
+            this.gatewayInteractPrompt.style.display = nearGateway ? 'block' : 'none';
+        }
     }
 
     showRegenIndicator(active) {

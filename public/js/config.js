@@ -108,6 +108,11 @@ export const CONFIG = {
     JUMP_PAD_TRIGGER_RADIUS: 0.9,    // meters — player proximity to trigger
     JUMP_PAD_RETRIGGER_DELAY: 1.0,   // seconds before same player can re-trigger
 
+    // ─── Gateway ───
+    GATEWAY_DURATION: 20.0,        // seconds portals stay active after both placed
+    GATEWAY_COOLDOWN: 30.0,        // seconds cooldown (starts when both placed)
+    GATEWAY_INTERACT_RADIUS: 1.5,  // meters proximity to press E and teleport
+
     // ─── Mouse ───
     MOUSE_SENSITIVITY: 0.002,      // radians per pixel
 };
