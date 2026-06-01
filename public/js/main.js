@@ -643,21 +643,27 @@ function gameLoop(currentTime) {
     // ─── Held jump pad mesh (shown in first-person while in pad mode) ───
     if (padMode && localPlayer?.alive) {
         if (!padHeldMesh) {
+            // Mirror the ground pad exactly: gray base + two flat blue rings
             const group = new THREE.Group();
-            // Orange base disc
             const baseMat = new THREE.MeshStandardMaterial({
-                color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 0.35,
+                color: 0x333333, emissive: 0x333333, emissiveIntensity: 0.4,
                 metalness: 0.3, roughness: 0.5,
             });
-            group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 24), baseMat));
-            // Dark blue ring on top
+            group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.07, 32), baseMat));
             const ringMat = new THREE.MeshStandardMaterial({
-                color: 0x1a3a8f, emissive: 0x1a3a8f, emissiveIntensity: 0.6,
+                color: 0x1a3a8f, emissive: 0x1a3a8f, emissiveIntensity: 0.7,
+                metalness: 0.5, roughness: 0.3,
             });
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.014, 8, 32), ringMat);
-            ring.rotation.x = Math.PI / 2;
-            ring.position.y = 0.025;
-            group.add(ring);
+            const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.055, 12, 48), ringMat);
+            outerRing.rotation.x = Math.PI / 2;
+            outerRing.position.y = 0.06;
+            group.add(outerRing);
+            const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 12, 48), ringMat);
+            innerRing.rotation.x = Math.PI / 2;
+            innerRing.position.y = 0.06;
+            group.add(innerRing);
+            // Scale down to fit in hand
+            group.scale.setScalar(0.28);
             padHeldMesh = group;
             renderer.scene.add(padHeldMesh);
         }
