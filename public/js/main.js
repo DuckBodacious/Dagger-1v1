@@ -636,6 +636,8 @@ function gameLoop(currentTime) {
             padMode = false;
         } else if (jumpPadCooldown <= 0) {
             padMode = true;
+            // Deactivate gateway mode if it was open
+            if (gatewayMode) { gatewayMode = false; if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; } }
         }
     }
     if (padMode && (!localPlayer?.alive || jumpPadCooldown > 0)) padMode = false;
@@ -700,10 +702,11 @@ function gameLoop(currentTime) {
     // ─── Gateway mode toggle (Q) ───
     if (inputState.qKeyJust && localPlayer?.alive) {
         if (gatewayMode) {
-            // Q again → exit mode
             gatewayMode = false;
         } else if (gatewayCooldown <= 0 && gatewayCount < 2 && !gateways.hasInFlight()) {
             gatewayMode = true;
+            // Deactivate pad mode if it was open
+            if (padMode) { padMode = false; if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; } }
         }
     }
     // Auto-exit mode when conditions are no longer valid
