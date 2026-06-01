@@ -1692,7 +1692,7 @@ let lobbyConfig = { humanSlots: 1, botCount: 1, killGoal: 10 };
 function broadcastLobbyState() {
     const playerList = Array.from(players.values())
         .filter(p => !p.isBot)
-        .map(p => ({ id: p.id, displayId: p.displayId, isHost: p.id === lobbyHostId, color: p.color || null, ready: p.ready || false }));
+        .map(p => ({ id: p.id, displayId: p.displayId, isHost: p.id === lobbyHostId }));
     broadcast({
         type: 'lobby_state',
         hostId: lobbyHostId,
@@ -1906,27 +1906,6 @@ function handleMessage(playerId, msg) {
             break;
         }
 
-        case 'player_color': {
-            if (gameActive) break;
-            const allowed = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#a855f7','#ec4899','#14b8a6','#f97316'];
-            if (allowed.includes(msg.color)) {
-                // Prevent two players picking the same color
-                const taken = Array.from(players.values()).some(p => p.id !== playerId && p.color === msg.color);
-                if (!taken) {
-                    player.color = msg.color;
-                    broadcastLobbyState();
-                }
-            }
-            break;
-        }
-
-        case 'player_ready': {
-            if (gameActive) break;
-            player.ready = !!msg.ready;
-            broadcastLobbyState();
-            break;
-        }
-
         case 'lobby_config':
             // Only host can change lobby settings
             if (playerId !== lobbyHostId) break;
@@ -1947,19 +1926,17 @@ function handleMessage(playerId, msg) {
             broadcastLobbyState();
             break;
 
-        case 'start_game': {
+        case 'start_game':
             // Only host can start
             if (playerId !== lobbyHostId) break;
             if (gameActive) break;
-            // All non-host human players must be ready
-            const nonHostHumans = Array.from(players.values()).filter(p => !p.isBot && p.id !== lobbyHostId);
-            if (nonHostHumans.some(p => !p.ready)) break;
             killGoal = lobbyConfig.killGoal;
             console.log(`[Server] Host starting game (goal: ${killGoal})`);
 
-            // Remove any leftover bots from previous game (collect IDs first — safe iteration)
-            const staleBotsIds = Array.from(players.values()).filter(p => p.isBot).map(p => p.id);
-            for (const bid of staleBotsIds) players.delete(bid);
+            // Remove any leftover bots from previous game
+            for (const [pid, p] of players) {
+                if (p.isBot) players.delete(pid);
+            }
 
             // Mark all humans ready
             for (const p of players.values()) {
@@ -1973,7 +1950,6 @@ function handleMessage(playerId, msg) {
 
             checkGameStart();
             break;
-        }
 
         case 'pickup_object': {
             if (!player.alive) break;
@@ -2246,17 +2222,6 @@ function updateGateways(dt) {
             GATEWAYS.delete(ownerId);
         }
     }
-}
-
-function clearPlayerGateways(playerId) {
-    const gw = GATEWAYS.get(playerId);
-    if (!gw) return;
-    if (gw.a || gw.b) {
-        broadcast({ type: 'gateway_expired', ownerId: playerId, aId: gw.a?.id, bId: gw.b?.id });
-    }
-    GATEWAYS.delete(playerId);
-    const p = players.get(playerId);
-    if (p) { p.gatewayCooldown = 0; p.gatewayCount = 0; }
 }
 
 function clearGateways() {
@@ -2629,46 +2594,35 @@ function processCombat(player, input) {
     }
 
     if (player.attackState === 'charged_attack') {
-        // Hitbox is active for exactly 5 server frames from the moment the attack fires.
-        // If no target is found within that window, the attack misses entirely.
-        const HITBOX_FRAMES = 5;
-        const hitboxWindow  = HITBOX_FRAMES / CONFIG.SERVER_TICK_RATE; // ≈ 0.083 s at 60 Hz
+        for (const other of players.values()) {
+            if (other.id === player.id || !other.alive) continue;
+            const dx = other.x - player.x;
+            const dy = other.y - player.y;
+            const dz = other.z - player.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-        if (player.attackTime >= hitboxWindow) {
-            // Window has closed — lock out to prevent late hits during the animation tail
-            player.attackHitRegistered = true;
-        } else {
-            // Window is open — scan for the first valid target this frame
-            for (const other of players.values()) {
-                if (other.id === player.id || !other.alive) continue;
-                const dx = other.x - player.x;
-                const dy = other.y - player.y;
-                const dz = other.z - player.z;
-                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist < CONFIG.CHARGED_RANGE) {
+                // Attacker must be roughly facing the target (~75° cone)
+                const nx = dx / dist, nz = dz / dist;
+                const fwdDot = (-Math.sin(player.yaw)) * nx + (-Math.cos(player.yaw)) * nz;
+                if (fwdDot <= 0.25) break; // not facing target — miss
 
-                if (dist < CONFIG.CHARGED_RANGE) {
-                    // Attacker must be roughly facing the target (~75° cone)
-                    const nx = dx / dist, nz = dz / dist;
-                    const fwdDot = (-Math.sin(player.yaw)) * nx + (-Math.cos(player.yaw)) * nz;
-                    if (fwdDot <= 0.25) break; // not facing — miss
+                // Backstab: dot of target's forward with direction-from-target-to-attacker
+                const toAttX = player.x - other.x;
+                const toAttZ = player.z - other.z;
+                const toAttLen = Math.sqrt(toAttX * toAttX + toAttZ * toAttZ);
+                const targetFwdX = -Math.sin(other.yaw);
+                const targetFwdZ = -Math.cos(other.yaw);
+                const backDot = toAttLen > 0.01
+                    ? (targetFwdX * (toAttX / toAttLen) + targetFwdZ * (toAttZ / toAttLen))
+                    : 1;
+                isBackstab = backDot < 0.0; // ±90° from behind (25% wider than default ±72.5°)
 
-                    // Backstab: is attacker coming from behind the target?
-                    const toAttX = player.x - other.x;
-                    const toAttZ = player.z - other.z;
-                    const toAttLen = Math.sqrt(toAttX * toAttX + toAttZ * toAttZ);
-                    const targetFwdX = -Math.sin(other.yaw);
-                    const targetFwdZ = -Math.cos(other.yaw);
-                    const backDot = toAttLen > 0.01
-                        ? (targetFwdX * (toAttX / toAttLen) + targetFwdZ * (toAttZ / toAttLen))
-                        : 1;
-                    isBackstab = backDot < 0.0; // ±90° arc behind target
-
-                    hitDamage  = isBackstab ? CONFIG.CHARGED_DAMAGE_BACK : CONFIG.CHARGED_DAMAGE_FRONT;
-                    hitPlayerId = other.id;
-                    other.hp  -= hitDamage;
-                    other.regenTimer = 0;
-                    break; // only one target per attack
-                }
+                hitDamage = isBackstab ? CONFIG.CHARGED_DAMAGE_BACK : CONFIG.CHARGED_DAMAGE_FRONT;
+                hitPlayerId = other.id;
+                other.hp -= hitDamage;
+                other.regenTimer = 0;
+                break;
             }
         }
     }
@@ -2717,12 +2671,6 @@ function updateGame(dt) {
     if (!gameActive) return;
 
     for (const player of players.values()) {
-        // Detect alive→dead transition and clear gateways immediately on death
-        if (player._wasAlive && !player.alive) {
-            clearPlayerGateways(player.id);
-        }
-        player._wasAlive = player.alive;
-
         if (!player.alive) {
             player.respawnTimer -= dt;
             if (player.respawnTimer <= 0) {

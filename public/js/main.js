@@ -25,8 +25,6 @@ let prevLocalHp = CONFIG.PLAYER_HP;
 let localDashStart = null;  // { x, y, z } for dash trail
 let prevLocalAlive = true;
 let jumpPadCooldown = 0;
-let padMode = false;       // true while player is "holding" the jump pad
-let padHeldMesh = null;    // the pad disc shown in hand during pad mode
 let jumpPads = null;
 let gateways = null;
 let gatewayCooldown = 0;   // client-side mirror of server cooldown (for HUD only)
@@ -96,12 +94,10 @@ network.onGameState = (state) => {
             localPlayer.pitch = 0;
             prevLocalAlive = false; // ensure respawn detection re-arms properly
             gateways?.clear();
-            gatewayCooldown = 0; gatewayCount = 0;
+            gatewayCooldown = 0;
+            gatewayCount = 0;
             gatewayMode = false;
             if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; }
-            padMode = false;
-            if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; }
-            jumpPadCooldown = 0;
         }
 
         // Detect HP change for damage effects
@@ -126,15 +122,6 @@ network.onGameState = (state) => {
             audio.playDeath();
         }
         prevLocalHp = serverLocal.hp;
-
-        // Detect death (alive → dead) — reset gateway state immediately
-        if (!serverLocal.alive && prevLocalAlive) {
-            gatewayMode = false; gatewayCooldown = 0; gatewayCount = 0;
-            gateways.cancelInFlight();
-            if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; }
-            padMode = false;
-            if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; }
-        }
 
         // Detect respawn (dead → alive) — hard sync position from server
         if (serverLocal.alive && !prevLocalAlive) {
@@ -235,12 +222,6 @@ network.onGameState = (state) => {
 
 network.onLobbyState = (msg) => {
     lobbyState = msg;
-    // Push chosen colors into renderer so in-game models update
-    if (msg.players) {
-        for (const p of msg.players) {
-            if (p.color) renderer.setPlayerColor(p.id, p.color);
-        }
-    }
     updateLobbyUI();
 };
 
@@ -380,172 +361,118 @@ network.handleMessage = (msg) => {
         hud.showGameOver(msg.winnerId, localPlayer.id, msg.scores);
     }
     if (msg.type === 'lobby_state') {
-        // Start button state is re-evaluated in updateLobbyUI; just un-freeze "Starting..." state
+        // Re-enable start button if it was disabled
         const btn = document.getElementById('start-btn');
-        if (btn && btn.textContent === 'Starting...') { btn.textContent = 'START GAME'; btn.disabled = false; }
+        if (btn) { btn.textContent = 'START GAME'; btn.disabled = false; }
     }
 };
 
 // ─── Lobby UI ───
 
-const PLAYER_COLORS = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#a855f7','#ec4899','#14b8a6','#f97316'];
-
-function buildColorSwatches(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    container.innerHTML = '';
-    const myColor = lobbyState.players?.find(p => p.id === localPlayer?.id)?.color ?? null;
-    const takenColors = new Set((lobbyState.players || []).filter(p => p.id !== localPlayer?.id).map(p => p.color));
-    for (const color of PLAYER_COLORS) {
-        const sw = document.createElement('button');
-        sw.className = 'color-swatch' +
-            (color === myColor ? ' selected' : '') +
-            (takenColors.has(color) ? ' taken' : '');
-        sw.style.background = color;
-        sw.title = color;
-        sw.disabled = takenColors.has(color);
-        sw.addEventListener('click', () => {
-            network.sendPlayerColor(color);
-        });
-        container.appendChild(sw);
-    }
-}
-
-function buildPlayerList(listId) {
-    const list = document.getElementById(listId);
-    if (!list) return;
-    list.innerHTML = '';
-    if (!lobbyState.players) return;
-    for (const p of lobbyState.players) {
-        const chip = document.createElement('div');
-        chip.className = 'lobby-player-chip' +
-            (p.id === localPlayer?.id ? ' is-you' : '') +
-            (p.isHost ? ' is-host' : '');
-        const dot = p.color ? `<span class="player-color-dot" style="background:${p.color}"></span>` : '';
-        const readyTag = (!p.isHost && p.ready) ? ' <span class="ready-tag">READY</span>' : '';
-        const notReadyTag = (!p.isHost && !p.ready) ? ' <span class="not-ready-tag">NOT READY</span>' : '';
-        const label = p.id === localPlayer?.id
-            ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
-            : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
-        chip.innerHTML = `${dot}${label}${readyTag}${notReadyTag}`;
-        list.appendChild(chip);
-    }
-}
-
 function updateLobbyUI() {
     const hostConfig = document.getElementById('host-config');
     const waitingPanel = document.getElementById('waiting-panel');
     const startBtn = document.getElementById('start-btn');
-    const readyBtn = document.getElementById('ready-btn');
 
     if (isHost) {
         hostConfig.style.display = 'block';
         waitingPanel.style.display = 'none';
         startBtn.style.display = 'inline-block';
-        readyBtn.style.display = 'none';
 
         // Sync counters to current lobbyState
         document.getElementById('humans-display').textContent = lobbyState.humanSlots ?? 1;
         document.getElementById('bots-display').textContent = lobbyState.botCount ?? 1;
         document.getElementById('goal-display').textContent = lobbyState.killGoal ?? 10;
 
-        // Enable/disable start based on all non-host players being ready AND enough total players
-        const nonHostPlayers = (lobbyState.players || []).filter(p => !p.isHost);
-        const allReady = nonHostPlayers.length === 0 || nonHostPlayers.every(p => p.ready);
-        const enoughPlayers = (lobbyState.humanSlots || 1) + (lobbyState.botCount || 0) >= 2;
-        if (!startBtn.disabled || startBtn.textContent === 'WAITING FOR PLAYERS…' || startBtn.textContent === 'NEED 2+ PLAYERS') {
-            startBtn.disabled = !allReady || !enoughPlayers;
-            if (!enoughPlayers) startBtn.textContent = 'NEED 2+ PLAYERS';
-            else if (!allReady)  startBtn.textContent = 'WAITING FOR PLAYERS…';
-            else                 startBtn.textContent = 'START GAME';
+        // Player list for host
+        const list = document.getElementById('lobby-player-list');
+        list.innerHTML = '';
+        if (lobbyState.players) {
+            for (const p of lobbyState.players) {
+                const chip = document.createElement('div');
+                chip.className = 'lobby-player-chip' +
+                    (p.id === localPlayer?.id ? ' is-you' : '') +
+                    (p.isHost ? ' is-host' : '');
+                chip.textContent = p.id === localPlayer?.id
+                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
+                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
+                list.appendChild(chip);
+            }
         }
-
-        buildColorSwatches('color-swatches-host');
-        buildPlayerList('lobby-player-list');
     } else {
         hostConfig.style.display = 'none';
         waitingPanel.style.display = 'block';
         startBtn.style.display = 'none';
-        readyBtn.style.display = 'inline-block';
 
         // Show config summary for non-host
         const cfgDisplay = document.getElementById('lobby-config-display');
         cfgDisplay.textContent =
             `${lobbyState.humanSlots ?? '?'} Players  ·  ${lobbyState.botCount ?? '?'} Bots  ·  First to ${lobbyState.killGoal ?? '?'} kills`;
 
-        // Update ready button state
-        const me = lobbyState.players?.find(p => p.id === localPlayer?.id);
-        const imReady = me?.ready ?? false;
-        readyBtn.textContent = imReady ? 'READY ✓' : 'READY UP';
-        readyBtn.classList.toggle('is-ready', imReady);
-
-        buildColorSwatches('color-swatches-guest');
-        buildPlayerList('lobby-player-list-nonhost');
+        // Player list for non-host
+        const list = document.getElementById('lobby-player-list-nonhost');
+        list.innerHTML = '';
+        if (lobbyState.players) {
+            for (const p of lobbyState.players) {
+                const chip = document.createElement('div');
+                chip.className = 'lobby-player-chip' +
+                    (p.id === localPlayer?.id ? ' is-you' : '') +
+                    (p.isHost ? ' is-host' : '');
+                chip.textContent = p.id === localPlayer?.id
+                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
+                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
+                list.appendChild(chip);
+            }
+        }
     }
 }
 
-// Counter buttons (host only) — always send the full config so server stays in sync
-function sendFullConfig() {
-    network.sendLobbyConfig({
-        humanSlots: lobbyState.humanSlots,
-        botCount:   lobbyState.botCount,
-        killGoal:   lobbyState.killGoal,
-    });
-}
+// Counter buttons (host only)
 function clampLobbyConfig() {
-    const maxBots = 4 - (lobbyState.humanSlots || 1);
-    lobbyState.botCount = Math.max(0, Math.min(lobbyState.botCount || 0, maxBots));
+    const maxBots = 4 - lobbyState.humanSlots;
+    if (lobbyState.botCount > maxBots) lobbyState.botCount = Math.max(0, maxBots);
 }
 
 document.getElementById('humans-minus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.humanSlots = Math.max(1, (lobbyState.humanSlots || 1) - 1);
     clampLobbyConfig();
-    sendFullConfig();
+    network.sendLobbyConfig({ humanSlots: lobbyState.humanSlots, botCount: lobbyState.botCount });
     updateLobbyUI();
 });
 document.getElementById('humans-plus')?.addEventListener('click', () => {
     if (!isHost) return;
-    const total = (lobbyState.humanSlots || 1) + (lobbyState.botCount || 0);
-    if (total >= 4) return; // already at cap
-    lobbyState.humanSlots = Math.min(4, (lobbyState.humanSlots || 1) + 1);
-    clampLobbyConfig();
-    sendFullConfig();
+    const newVal = Math.min(4, (lobbyState.humanSlots || 1) + 1);
+    if (newVal + (lobbyState.botCount || 0) > 4) return; // total cap
+    lobbyState.humanSlots = newVal;
+    network.sendLobbyConfig({ humanSlots: lobbyState.humanSlots });
     updateLobbyUI();
 });
 document.getElementById('bots-minus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.botCount = Math.max(0, (lobbyState.botCount || 0) - 1);
-    sendFullConfig();
+    network.sendLobbyConfig({ botCount: lobbyState.botCount });
     updateLobbyUI();
 });
 document.getElementById('bots-plus')?.addEventListener('click', () => {
     if (!isHost) return;
-    const total = (lobbyState.humanSlots || 1) + (lobbyState.botCount || 0);
-    if (total >= 4) return; // already at cap
-    lobbyState.botCount = Math.min(3, (lobbyState.botCount || 0) + 1);
-    sendFullConfig();
+    const newBots = Math.min(3, (lobbyState.botCount || 0) + 1);
+    if ((lobbyState.humanSlots || 1) + newBots > 4) return; // total cap
+    lobbyState.botCount = newBots;
+    network.sendLobbyConfig({ botCount: lobbyState.botCount });
     updateLobbyUI();
 });
 document.getElementById('goal-minus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.killGoal = Math.max(1, (lobbyState.killGoal || 10) - 1);
-    sendFullConfig();
+    network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
     updateLobbyUI();
 });
 document.getElementById('goal-plus')?.addEventListener('click', () => {
     if (!isHost) return;
     lobbyState.killGoal = Math.min(100, (lobbyState.killGoal || 10) + 1);
-    sendFullConfig();
+    network.sendLobbyConfig({ killGoal: lobbyState.killGoal });
     updateLobbyUI();
-});
-
-// Ready button (non-host only)
-document.getElementById('ready-btn')?.addEventListener('click', () => {
-    if (isHost) return;
-    const me = lobbyState.players?.find(p => p.id === localPlayer?.id);
-    const imReady = me?.ready ?? false;
-    network.sendPlayerReady(!imReady);
 });
 
 // Start button (host only)
@@ -626,7 +553,7 @@ function gameLoop(currentTime) {
     // Include client position + yaw so the server uses the correct position for
     // hit detection instead of its own drifted simulation.
     const serverInput = {
-        ...((carriedObjectId !== null || gatewayMode || padMode)
+        ...((carriedObjectId !== null || gatewayMode)
             ? { ...inputState, primaryAttack: false, chargedAttack: false, elbow: false }
             : inputState),
         px: localPlayer.x,
@@ -639,69 +566,20 @@ function gameLoop(currentTime) {
         network.sendInput(serverInput);
     }
 
-    // ─── Jump Pad mode toggle ([2]) ───
+    // ─── Jump Pad placement ───
     if (jumpPadCooldown > 0) jumpPadCooldown -= dt;
 
-    if (inputState.digit2Just && localPlayer?.alive) {
-        if (padMode) {
-            padMode = false;
-        } else if (jumpPadCooldown <= 0) {
-            padMode = true;
-            // Deactivate gateway mode if it was open
-            if (gatewayMode) { gatewayMode = false; if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; } }
-        }
-    }
-    if (padMode && (!localPlayer?.alive || jumpPadCooldown > 0)) padMode = false;
-
-    // ─── Held jump pad mesh (shown in first-person while in pad mode) ───
-    if (padMode && localPlayer?.alive) {
-        if (!padHeldMesh) {
-            // Mirror the ground pad exactly: gray base + two flat blue rings
-            const group = new THREE.Group();
-            const baseMat = new THREE.MeshStandardMaterial({
-                color: 0x333333, emissive: 0x333333, emissiveIntensity: 0.4,
-                metalness: 0.3, roughness: 0.5,
-            });
-            group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.07, 32), baseMat));
-            const ringMat = new THREE.MeshStandardMaterial({
-                color: 0x1a3a8f, emissive: 0x1a3a8f, emissiveIntensity: 0.7,
-                metalness: 0.5, roughness: 0.3,
-            });
-            const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.055, 12, 48), ringMat);
-            outerRing.rotation.x = Math.PI / 2;
-            outerRing.position.y = 0.06;
-            group.add(outerRing);
-            const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 12, 48), ringMat);
-            innerRing.rotation.x = Math.PI / 2;
-            innerRing.position.y = 0.06;
-            group.add(innerRing);
-            // Scale down to fit in hand
-            group.scale.setScalar(0.28);
-            padHeldMesh = group;
-            renderer.scene.add(padHeldMesh);
-        }
-        const cam   = renderer.camera;
-        const fwd   = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
-        const up    = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
-        padHeldMesh.position.copy(cam.position)
-            .addScaledVector(fwd,   0.55)
-            .addScaledVector(right, 0.22)
-            .addScaledVector(up,   -0.18);
-        padHeldMesh.rotation.copy(cam.rotation);
-    } else if (padHeldMesh) {
-        renderer.scene.remove(padHeldMesh);
-        padHeldMesh = null;
-    }
-
-    // ─── Raycast preview + placement ───
-    if (padMode && localPlayer?.alive) {
+    if (localPlayer?.alive && inputState.holdingPad && jumpPadCooldown <= 0) {
         const hit = jumpPads.getPlacementTarget(renderer.camera);
         jumpPads.updatePreview(hit);
-        if (inputState.leftClickJust && hit) {
-            network.sendRaw({ type: 'place_jumppad', x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz });
+
+        if (inputState.placePadClick && hit) {
+            network.sendRaw({
+                type: 'place_jumppad',
+                x: hit.x, y: hit.y, z: hit.z,
+                nx: hit.nx, ny: hit.ny, nz: hit.nz,
+            });
             jumpPadCooldown = CONFIG.JUMP_PAD_COOLDOWN;
-            padMode = false;
             jumpPads.updatePreview(null);
         }
     } else {
@@ -713,11 +591,10 @@ function gameLoop(currentTime) {
     // ─── Gateway mode toggle (Q) ───
     if (inputState.qKeyJust && localPlayer?.alive) {
         if (gatewayMode) {
+            // Q again → exit mode
             gatewayMode = false;
         } else if (gatewayCooldown <= 0 && gatewayCount < 2 && !gateways.hasInFlight()) {
             gatewayMode = true;
-            // Deactivate pad mode if it was open
-            if (padMode) { padMode = false; if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; } }
         }
     }
     // Auto-exit mode when conditions are no longer valid
