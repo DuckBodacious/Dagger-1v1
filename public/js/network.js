@@ -1,3 +1,4 @@
+// v2 — added sendPlayerReady
 import { CONFIG } from './config.js';
 
 export class NetworkClient {
@@ -154,6 +155,16 @@ export class NetworkClient {
     sendLobbyConfig(config) {
         if (!this.connected) return;
         this.ws.send(JSON.stringify({ type: 'lobby_config', ...config }));
+    }
+
+    sendPlayerColor(color) {
+        if (!this.connected) return;
+        this.ws.send(JSON.stringify({ type: 'player_color', color }));
+    }
+
+    sendPlayerReady(ready) {
+        if (!this.connected) return;
+        this.ws.send(JSON.stringify({ type: 'player_ready', ready }));
     }
 
     sendStartGame() {
