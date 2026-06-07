@@ -372,13 +372,25 @@ network.handleMessage = (msg) => {
 // ─── Lobby UI ───
 
 function buildPlayerChip(p) {
-    const chip = document.createElement('div');
-    const isYou  = p.id === localPlayer?.id;
-    const label  = isYou ? `You (P${p.displayId})` : `Player ${p.displayId}`;
-    const star   = p.isHost ? ' ★' : '';
-    const ready  = p.isHost ? '' : (p.ready ? ' ✓' : ' …');
-    chip.className = 'lobby-player-chip' + (isYou ? ' is-you' : '') + (p.isHost ? ' is-host' : '') + (p.ready && !p.isHost ? ' is-ready' : '');
-    chip.textContent = label + star + ready;
+    const chip  = document.createElement('div');
+    const isYou = p.id === localPlayer?.id;
+    const name  = isYou ? `You (P${p.displayId})` : `Player ${p.displayId}`;
+
+    chip.className = 'lobby-player-chip' +
+        (isYou   ? ' is-you'  : '') +
+        (p.isHost ? ' is-host' : '') +
+        (p.ready && !p.isHost ? ' is-ready' : '');
+
+    if (p.isHost) {
+        chip.textContent = name + ' ★';
+    } else {
+        const dot  = document.createElement('span');
+        dot.className   = 'ready-dot ' + (p.ready ? 'dot-ready' : 'dot-waiting');
+        dot.textContent = p.ready ? '●' : '○';
+        const text = document.createTextNode(' ' + name + (p.ready ? '  READY' : '  NOT READY'));
+        chip.appendChild(dot);
+        chip.appendChild(text);
+    }
     return chip;
 }
 
@@ -426,9 +438,10 @@ function updateLobbyUI() {
         if (cfgDisplay) cfgDisplay.textContent =
             `${lobbyState.humanSlots ?? '?'} Players  ·  ${lobbyState.botCount ?? '?'} Bots  ·  First to ${lobbyState.killGoal ?? '?'} kills`;
 
-        // Ready button state
+        // Ready button — grey/disabled when ready, normal when not
         if (readyBtn) {
             readyBtn.textContent = imReady ? 'READY ✓' : 'READY UP';
+            readyBtn.disabled    = imReady;
             readyBtn.classList.toggle('is-ready', imReady);
         }
 
@@ -498,8 +511,15 @@ document.getElementById('start-btn')?.addEventListener('click', () => {
 // Ready button (non-host only)
 document.getElementById('ready-btn')?.addEventListener('click', () => {
     if (isHost) return;
+    const btn = document.getElementById('ready-btn');
     const me = (lobbyState.players || []).find(p => p.id === localPlayer?.id);
     const imReady = me?.ready ?? false;
+    // Optimistically update button immediately — feels responsive before server replies
+    if (btn) {
+        btn.disabled    = !imReady; // disable when going ready, re-enable when going unready
+        btn.textContent = imReady ? 'READY UP' : 'READY ✓';
+        btn.classList.toggle('is-ready', !imReady);
+    }
     network.sendPlayerReady(!imReady);
 });
 
