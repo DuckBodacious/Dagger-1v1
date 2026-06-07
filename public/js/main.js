@@ -374,22 +374,21 @@ network.handleMessage = (msg) => {
 function buildPlayerChip(p) {
     const chip  = document.createElement('div');
     const isYou = p.id === localPlayer?.id;
-    const name  = isYou ? `You (P${p.displayId})` : `Player ${p.displayId}`;
+    const name  = isYou ? `You  P${p.displayId}` : `Player  P${p.displayId}`;
 
     chip.className = 'lobby-player-chip' +
-        (isYou   ? ' is-you'  : '') +
+        (isYou    ? ' is-you'  : '') +
         (p.isHost ? ' is-host' : '') +
         (p.ready && !p.isHost ? ' is-ready' : '');
 
     if (p.isHost) {
-        chip.textContent = name + ' ★';
+        chip.textContent = name + '  ★ HOST';
     } else {
-        const dot  = document.createElement('span');
+        const dot = document.createElement('span');
         dot.className   = 'ready-dot ' + (p.ready ? 'dot-ready' : 'dot-waiting');
         dot.textContent = p.ready ? '●' : '○';
-        const text = document.createTextNode(' ' + name + (p.ready ? '  READY' : '  NOT READY'));
         chip.appendChild(dot);
-        chip.appendChild(text);
+        chip.appendChild(document.createTextNode('  ' + name + '  —  ' + (p.ready ? 'READY' : 'NOT READY')));
     }
     return chip;
 }
@@ -514,12 +513,23 @@ document.getElementById('ready-btn')?.addEventListener('click', () => {
     const btn = document.getElementById('ready-btn');
     const me = (lobbyState.players || []).find(p => p.id === localPlayer?.id);
     const imReady = me?.ready ?? false;
+    const nextReady = !imReady;
+
+    // Optimistically update button
     if (btn) {
-        btn.disabled    = !imReady;
-        btn.textContent = imReady ? 'READY UP' : 'READY ✓';
-        btn.classList.toggle('is-ready', !imReady);
+        btn.disabled    = nextReady;
+        btn.textContent = nextReady ? 'READY ✓' : 'READY UP';
+        btn.classList.toggle('is-ready', nextReady);
     }
-    network.sendPlayerReady(!imReady);
+
+    // Optimistically update this player's chip in the list so it
+    // changes instantly without waiting for the server round-trip
+    if (me) {
+        me.ready = nextReady;
+        updateLobbyUI();
+    }
+
+    network.sendPlayerReady(nextReady);
 });
 
 // Volume slider
