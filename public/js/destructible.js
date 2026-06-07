@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
-import { COLLISION_BOXES } from './arena.js';
+import { CONFIG } from './config.js?v=3';
+import { COLLISION_BOXES } from './arena.js?v=3';
 
 // ─── Destructible Manager ───
 // Handles crates, barrels (explosive + goo), and breakable walls on the client side.

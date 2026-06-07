@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
-import { buildArena } from './arena.js';
+import { CONFIG } from './config.js?v=3';
+import { buildArena } from './arena.js?v=3';
 
 export class GameRenderer {
     constructor(canvas) {
@@ -68,6 +68,7 @@ export class GameRenderer {
 
         // ─── Player meshes ───
         this.playerMeshes = new Map();  // playerId → THREE.Group
+        this.playerColors = new Map();  // playerId → hex color string
 
         // ─── Head bob state ───
         this.headBobPhase = 0;
@@ -128,18 +129,46 @@ export class GameRenderer {
         }
     }
 
+    // Set chosen color for a player (from lobby state); rebuilds mesh if already created
+    setPlayerColor(playerId, colorHex) {
+        const prev = this.playerColors.get(playerId);
+        if (prev === colorHex) return;
+        this.playerColors.set(playerId, colorHex);
+        // If mesh already exists, update its material
+        const group = this.playerMeshes.get(playerId);
+        if (group) {
+            const color = new THREE.Color(colorHex);
+            const body = group.getObjectByName('body');
+            const head = group.getObjectByName('head');
+            if (body) body.material.color.set(color);
+            if (head) { head.material.emissive.set(color); }
+        }
+    }
+
+    _playerColor(playerId, isLocalPlayer) {
+        const stored = this.playerColors.get(playerId);
+        if (stored) return new THREE.Color(stored);
+        // Fallback: blue for local, deterministic palette for remotes
+        const PALETTE = [0x3b82f6,0xef4444,0x22c55e,0xf59e0b,0xa855f7,0xec4899,0x14b8a6,0xf97316];
+        if (isLocalPlayer) return new THREE.Color(PALETTE[0]);
+        let hash = 0;
+        for (let i = 0; i < playerId.length; i++) hash = (hash * 31 + playerId.charCodeAt(i)) >>> 0;
+        return new THREE.Color(PALETTE[1 + (hash % (PALETTE.length - 1))]);
+    }
+
     // Create or get the mesh group for a player
     getPlayerMesh(playerId, isLocalPlayer) {
         if (this.playerMeshes.has(playerId)) {
             return this.playerMeshes.get(playerId);
         }
 
+        const color = this._playerColor(playerId, isLocalPlayer);
         const group = new THREE.Group();
 
         // Capsule body
         const bodyGeo = new THREE.CapsuleGeometry(CONFIG.PLAYER_RADIUS, CONFIG.PLAYER_HEIGHT - CONFIG.PLAYER_RADIUS * 2, 8, 12);
         const bodyMat = new THREE.MeshStandardMaterial({
-            color: isLocalPlayer ? 0x3b82f6 : 0xef4444,
+            color,
             roughness: 0.4,
             metalness: 0.2,
         });
@@ -152,7 +181,7 @@ export class GameRenderer {
         const headGeo = new THREE.SphereGeometry(0.15, 8, 8);
         const headMat = new THREE.MeshStandardMaterial({
             color: 0xffffff,
-            emissive: isLocalPlayer ? 0x3b82f6 : 0xef4444,
+            emissive: color,
             emissiveIntensity: 0.5,
         });
         const head = new THREE.Mesh(headGeo, headMat);
