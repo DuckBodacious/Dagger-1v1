@@ -1692,7 +1692,12 @@ let lobbyConfig = { humanSlots: 1, botCount: 1, killGoal: 10 };
 function broadcastLobbyState() {
     const playerList = Array.from(players.values())
         .filter(p => !p.isBot)
-        .map(p => ({ id: p.id, displayId: p.displayId, isHost: p.id === lobbyHostId }));
+        .map(p => ({
+            id: p.id,
+            displayId: p.displayId,
+            isHost: p.id === lobbyHostId,
+            ready: p.id === lobbyHostId ? true : !!p.ready, // host counts as always ready
+        }));
     broadcast({
         type: 'lobby_state',
         hostId: lobbyHostId,
@@ -1704,7 +1709,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
-app.get('/version', (_req, res) => res.json({ version: 'ready-v4', playerReadyHandler: true }));
+app.get('/version', (_req, res) => res.json({ version: 'ready-v5', readyInBroadcast: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,

@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=3';
-import { InputManager } from './input.js?v=3';
-import { PlayerState } from './player.js?v=3';
-import { processMovement } from './movement.js?v=3';
-import { processCombat } from './combat.js?v=3';
-import { NetworkClient } from './network.js?v=3';
-import { GameRenderer } from './renderer.js?v=3';
-import { HUD } from './hud.js?v=3';
-import { EffectsManager } from './effects.js?v=3';
-import { checkCollision } from './arena.js?v=3';
-import { DestructibleManager } from './destructible.js?v=3';
-import { AudioManager } from './audio.js?v=3';
-import { JumpPadManager } from './jumppad.js?v=3';
-import { GatewayManager } from './gateway.js?v=3';
+import { CONFIG } from './config.js?v=4';
+import { InputManager } from './input.js?v=4';
+import { PlayerState } from './player.js?v=4';
+import { processMovement } from './movement.js?v=4';
+import { processCombat } from './combat.js?v=4';
+import { NetworkClient } from './network.js?v=4';
+import { GameRenderer } from './renderer.js?v=4';
+import { HUD } from './hud.js?v=4';
+import { EffectsManager } from './effects.js?v=4';
+import { checkCollision } from './arena.js?v=4';
+import { DestructibleManager } from './destructible.js?v=4';
+import { AudioManager } from './audio.js?v=4';
+import { JumpPadManager } from './jumppad.js?v=4';
+import { GatewayManager } from './gateway.js?v=4';
 
 // ─── Game State ───
 let localPlayer = null;
@@ -510,24 +510,14 @@ document.getElementById('start-btn')?.addEventListener('click', () => {
 // Ready button (non-host only)
 document.getElementById('ready-btn')?.addEventListener('click', () => {
     if (isHost) return;
-    const btn = document.getElementById('ready-btn');
     const me = (lobbyState.players || []).find(p => p.id === localPlayer?.id);
     const imReady = me?.ready ?? false;
     const nextReady = !imReady;
 
-    // Optimistically update button
-    if (btn) {
-        btn.disabled    = nextReady;
-        btn.textContent = nextReady ? 'READY ✓' : 'READY UP';
-        btn.classList.toggle('is-ready', nextReady);
-    }
-
-    // Optimistically update this player's chip in the list so it
-    // changes instantly without waiting for the server round-trip
-    if (me) {
-        me.ready = nextReady;
-        updateLobbyUI();
-    }
+    // Optimistically update local state — the server now echoes `ready` back in
+    // lobby_state so this no longer flashes back to the old value.
+    if (me) me.ready = nextReady;
+    updateLobbyUI();
 
     network.sendPlayerReady(nextReady);
 });
