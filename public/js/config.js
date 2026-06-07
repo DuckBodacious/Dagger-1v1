@@ -33,11 +33,11 @@ export const CONFIG = {
     MANTLE_FORWARD_BOOST: 2.0,     // m/s forward velocity after mantle completes
 
     // ─── Player Dimensions ───
-    PLAYER_HEIGHT: 1.8,            // meters
-    PLAYER_CROUCH_HEIGHT: 1.0,     // meters
-    PLAYER_RADIUS: 0.4,            // capsule radius
-    CAMERA_HEIGHT: 1.6,            // eye level from feet
-    CAMERA_CROUCH_HEIGHT: 0.8,     // eye level when crouching
+    PLAYER_HEIGHT: 1.35,           // meters (was 1.8, -25%)
+    PLAYER_CROUCH_HEIGHT: 0.75,    // meters (was 1.0, -25%)
+    PLAYER_RADIUS: 0.3,            // capsule radius (was 0.4, -25%)
+    CAMERA_HEIGHT: 1.2,            // eye level from feet (was 1.6, -25%)
+    CAMERA_CROUCH_HEIGHT: 0.6,     // eye level when crouching (was 0.8, -25%)
     STEP_HEIGHT: 0.42,             // max auto-step-up height (slightly > one stair step at 0.35m)
 
     // ─── Combat — Dagger ───
