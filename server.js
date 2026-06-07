@@ -1927,9 +1927,11 @@ function handleMessage(playerId, msg) {
             break;
 
         case 'player_ready':
+            console.log(`[Server] player_ready from ${playerId}: ready=${msg.ready}, gameActive=${gameActive}, isHost=${playerId === lobbyHostId}`);
             if (gameActive) break;
-            if (playerId === lobbyHostId) break; // host is always implicitly ready
+            if (playerId === lobbyHostId) break;
             player.ready = !!msg.ready;
+            console.log(`[Server] Set player ${playerId} ready=${player.ready}, broadcasting lobby state`);
             broadcastLobbyState();
             break;
 

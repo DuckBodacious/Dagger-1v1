@@ -510,13 +510,14 @@ document.getElementById('start-btn')?.addEventListener('click', () => {
 
 // Ready button (non-host only)
 document.getElementById('ready-btn')?.addEventListener('click', () => {
+    console.log('[Ready] clicked — isHost:', isHost, 'connected:', network.connected, 'localPlayer:', localPlayer?.id);
     if (isHost) return;
     const btn = document.getElementById('ready-btn');
     const me = (lobbyState.players || []).find(p => p.id === localPlayer?.id);
     const imReady = me?.ready ?? false;
-    // Optimistically update button immediately — feels responsive before server replies
+    console.log('[Ready] current imReady:', imReady, 'sending:', !imReady);
     if (btn) {
-        btn.disabled    = !imReady; // disable when going ready, re-enable when going unready
+        btn.disabled    = !imReady;
         btn.textContent = imReady ? 'READY UP' : 'READY ✓';
         btn.classList.toggle('is-ready', !imReady);
     }
