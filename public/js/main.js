@@ -25,7 +25,8 @@ let prevLocalHp = CONFIG.PLAYER_HP;
 let localDashStart = null;  // { x, y, z } for dash trail
 let prevLocalAlive = true;
 let jumpPadCooldown = 0;
-let padHeldMesh = null;    // the pad disc shown in hand while holding [2]
+let padMode = false;       // true while player has the pad equipped
+let padHeldMesh = null;    // the pad disc shown in hand while pad mode is active
 let jumpPads = null;
 let gateways = null;
 let gatewayCooldown = 0;   // client-side mirror of server cooldown (for HUD only)
@@ -554,7 +555,7 @@ function gameLoop(currentTime) {
     // Include client position + yaw so the server uses the correct position for
     // hit detection instead of its own drifted simulation.
     const serverInput = {
-        ...((carriedObjectId !== null || gatewayMode)
+        ...((carriedObjectId !== null || gatewayMode || padMode)
             ? { ...inputState, primaryAttack: false, chargedAttack: false, elbow: false }
             : inputState),
         px: localPlayer.x,
@@ -567,20 +568,26 @@ function gameLoop(currentTime) {
         network.sendInput(serverInput);
     }
 
-    // ─── Jump Pad placement ───
+    // ─── Jump Pad (toggle [2]) ───
     if (jumpPadCooldown > 0) jumpPadCooldown -= dt;
 
-    if (localPlayer?.alive && inputState.holdingPad && jumpPadCooldown <= 0) {
+    // Toggle pad mode on/off with [2]
+    if (inputState.digit2Just && localPlayer?.alive) {
+        if (padMode) padMode = false;
+        else if (jumpPadCooldown <= 0) padMode = true;
+    }
+    // Auto-exit when not valid
+    if (padMode && (!localPlayer?.alive || jumpPadCooldown > 0)) padMode = false;
+
+    if (padMode) {
         // ── Held pad mesh ──────────────────────────────────────────────────────
         if (!padHeldMesh) {
             const group = new THREE.Group();
-            // Gray base disc — matches the ground pad colour exactly
             const baseMat = new THREE.MeshStandardMaterial({
                 color: 0x333333, emissive: 0x333333, emissiveIntensity: 0.4,
                 metalness: 0.3, roughness: 0.5,
             });
             group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.07, 32), baseMat));
-            // Dark blue rings
             const ringMat = new THREE.MeshStandardMaterial({
                 color: 0x1a3a8f, emissive: 0x1a3a8f, emissiveIntensity: 0.7,
                 metalness: 0.5, roughness: 0.3,
@@ -591,7 +598,7 @@ function gameLoop(currentTime) {
             const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 12, 48), ringMat);
             innerRing.rotation.x = Math.PI / 2; innerRing.position.y = 0.06;
             group.add(innerRing);
-            group.scale.setScalar(0.28); // scale to hand size
+            group.scale.setScalar(0.28);
             padHeldMesh = group;
             renderer.scene.add(padHeldMesh);
         }
@@ -608,14 +615,10 @@ function gameLoop(currentTime) {
         // ── Raycast preview + placement ────────────────────────────────────────
         const hit = jumpPads.getPlacementTarget(renderer.camera);
         jumpPads.updatePreview(hit);
-
-        if (inputState.placePadClick && hit) {
-            network.sendRaw({
-                type: 'place_jumppad',
-                x: hit.x, y: hit.y, z: hit.z,
-                nx: hit.nx, ny: hit.ny, nz: hit.nz,
-            });
+        if (inputState.leftClickJust && hit) {
+            network.sendRaw({ type: 'place_jumppad', x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz });
             jumpPadCooldown = CONFIG.JUMP_PAD_COOLDOWN;
+            padMode = false;
             jumpPads.updatePreview(null);
         }
     } else {

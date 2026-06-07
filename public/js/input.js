@@ -16,9 +16,10 @@ export class InputManager {
         this.scrollDown = false;
         this.thumbButton = false;
         this.pointerLocked = false;
-        this.fKeyJust = false;
-        this.eKeyJust = false;
-        this.qKeyJust = false;
+        this.fKeyJust   = false;
+        this.eKeyJust   = false;
+        this.qKeyJust   = false;
+        this.digit2Just = false;
 
         // Double-tap tracking not needed here (no drop-through)
 
@@ -28,9 +29,10 @@ export class InputManager {
     _bindEvents() {
         // Keyboard
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyF' && !this.keys['KeyF']) this.fKeyJust = true;
-            if (e.code === 'KeyE' && !this.keys['KeyE']) this.eKeyJust = true;
-            if (e.code === 'KeyQ' && !this.keys['KeyQ']) this.qKeyJust = true;
+            if (e.code === 'KeyF'   && !this.keys['KeyF'])   this.fKeyJust   = true;
+            if (e.code === 'KeyE'   && !this.keys['KeyE'])   this.eKeyJust   = true;
+            if (e.code === 'KeyQ'   && !this.keys['KeyQ'])   this.qKeyJust   = true;
+            if (e.code === 'Digit2' && !this.keys['Digit2']) this.digit2Just = true;
             this.keys[e.code] = true;
         });
 
@@ -89,7 +91,6 @@ export class InputManager {
 
     // Get current input snapshot to send to server
     getInputState() {
-        const holdingPad = this.keys['Digit2'] || false;
         const input = {
             forward: this.keys['KeyW'] || false,
             backward: this.keys['KeyS'] || false,
@@ -98,38 +99,34 @@ export class InputManager {
             jump: this.keys['Space'] || this.scrollDown || false,
             crouch: this.keys['ControlLeft'] || false,
             dash: this.keys['ShiftLeft'] || false,
-            // Suppress primary attack while in pad placement mode
-            primaryAttack: holdingPad ? false : this.leftClick,
+            primaryAttack: this.leftClick,
             chargedAttack: this.rightClickHeld,
             elbow: this.scrollUp,
-            ability1: this.middleClick,   // Middle mouse — reserved
-            ability2: this.thumbButton,   // Thumb button — reserved
+            ability1: this.middleClick,
+            ability2: this.thumbButton,
             mouseDeltaX: this.mouseDeltaX * CONFIG.MOUSE_SENSITIVITY,
             mouseDeltaY: this.mouseDeltaY * CONFIG.MOUSE_SENSITIVITY,
-            holdingPad,
-            // One-shot: left click while holding pad key
-            placePadClick: holdingPad ? this.leftClick : false,
             // One-shot triggers
             leftClickJust: this.leftClickJust,
-            qKeyJust: this.qKeyJust,
-            // Pickup / throw / drop
-            interact: this.fKeyJust,
-            // Gateway teleport
-            useGateway: this.eKeyJust,
+            digit2Just:    this.digit2Just,
+            qKeyJust:      this.qKeyJust,
+            interact:      this.fKeyJust,
+            useGateway:    this.eKeyJust,
             rightClickJust: this.rightClick,
         };
 
         // Reset per-frame triggers
         this.mouseDeltaX = 0;
         this.mouseDeltaY = 0;
-        this.scrollUp = false;
-        this.scrollDown = false;
+        this.scrollUp    = false;
+        this.scrollDown  = false;
         this.middleClick = false;
-        this.rightClick = false;
+        this.rightClick  = false;
         this.leftClickJust = false;
-        this.qKeyJust = false;
-        this.fKeyJust = false;
-        this.eKeyJust = false;
+        this.digit2Just  = false;
+        this.qKeyJust    = false;
+        this.fKeyJust    = false;
+        this.eKeyJust    = false;
 
         return input;
     }
