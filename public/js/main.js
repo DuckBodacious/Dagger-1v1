@@ -574,7 +574,10 @@ function gameLoop(currentTime) {
     // Toggle pad mode on/off with [2]
     if (inputState.digit2Just && localPlayer?.alive) {
         if (padMode) padMode = false;
-        else if (jumpPadCooldown <= 0) padMode = true;
+        else if (jumpPadCooldown <= 0) {
+            padMode = true;
+            if (gatewayMode) { gatewayMode = false; if (gatewayHeldMesh) { renderer.scene.remove(gatewayHeldMesh); gatewayHeldMesh = null; } }
+        }
     }
     // Auto-exit when not valid
     if (padMode && (!localPlayer?.alive || jumpPadCooldown > 0)) padMode = false;
@@ -635,6 +638,7 @@ function gameLoop(currentTime) {
             gatewayMode = false;
         } else if (gatewayCooldown <= 0 && gatewayCount < 2 && !gateways.hasInFlight()) {
             gatewayMode = true;
+            if (padMode) { padMode = false; if (padHeldMesh) { renderer.scene.remove(padHeldMesh); padHeldMesh = null; } }
         }
     }
     // Auto-exit mode when conditions are no longer valid
