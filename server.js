@@ -1704,6 +1704,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
+app.get('/version', (_req, res) => res.json({ version: 'ready-v4', playerReadyHandler: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,
@@ -1872,6 +1873,9 @@ function broadcast(msg, excludeId = null) {
 function handleMessage(playerId, msg) {
     const player = players.get(playerId);
     if (!player) return;
+    if (msg.type !== 'input') {
+        console.log(`[Server] msg type="${msg.type}" from player ${playerId}`);
+    }
 
     switch (msg.type) {
         case 'input':
