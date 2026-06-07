@@ -1873,10 +1873,6 @@ function broadcast(msg, excludeId = null) {
 function handleMessage(playerId, msg) {
     const player = players.get(playerId);
     if (!player) return;
-    if (msg.type !== 'input') {
-        console.log(`[Server] msg type="${msg.type}" from player ${playerId}`);
-    }
-
     switch (msg.type) {
         case 'input':
             player.lastInput = msg;
@@ -1931,11 +1927,9 @@ function handleMessage(playerId, msg) {
             break;
 
         case 'player_ready':
-            console.log(`[Server] player_ready from ${playerId}: ready=${msg.ready}, gameActive=${gameActive}, isHost=${playerId === lobbyHostId}`);
             if (gameActive) break;
             if (playerId === lobbyHostId) break;
             player.ready = !!msg.ready;
-            console.log(`[Server] Set player ${playerId} ready=${player.ready}, broadcasting lobby state`);
             broadcastLobbyState();
             break;
 

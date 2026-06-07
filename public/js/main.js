@@ -510,12 +510,10 @@ document.getElementById('start-btn')?.addEventListener('click', () => {
 
 // Ready button (non-host only)
 document.getElementById('ready-btn')?.addEventListener('click', () => {
-    console.log('[Ready] clicked — isHost:', isHost, 'connected:', network.connected, 'localPlayer:', localPlayer?.id);
     if (isHost) return;
     const btn = document.getElementById('ready-btn');
     const me = (lobbyState.players || []).find(p => p.id === localPlayer?.id);
     const imReady = me?.ready ?? false;
-    console.log('[Ready] current imReady:', imReady, 'sending:', !imReady);
     if (btn) {
         btn.disabled    = !imReady;
         btn.textContent = imReady ? 'READY UP' : 'READY ✓';
