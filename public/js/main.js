@@ -371,61 +371,72 @@ network.handleMessage = (msg) => {
 
 // ─── Lobby UI ───
 
+function buildPlayerChip(p) {
+    const chip = document.createElement('div');
+    const isYou  = p.id === localPlayer?.id;
+    const label  = isYou ? `You (P${p.displayId})` : `Player ${p.displayId}`;
+    const star   = p.isHost ? ' ★' : '';
+    const ready  = p.isHost ? '' : (p.ready ? ' ✓' : ' …');
+    chip.className = 'lobby-player-chip' + (isYou ? ' is-you' : '') + (p.isHost ? ' is-host' : '') + (p.ready && !p.isHost ? ' is-ready' : '');
+    chip.textContent = label + star + ready;
+    return chip;
+}
+
 function updateLobbyUI() {
-    const hostConfig = document.getElementById('host-config');
+    const hostConfig   = document.getElementById('host-config');
     const waitingPanel = document.getElementById('waiting-panel');
-    const startBtn = document.getElementById('start-btn');
+    const startBtn     = document.getElementById('start-btn');
+    const readyBtn     = document.getElementById('ready-btn');
+
+    const players      = lobbyState.players || [];
+    const nonHosts     = players.filter(p => !p.isHost);
+    const allReady     = nonHosts.length === 0 || nonHosts.every(p => p.ready);
+    const me           = players.find(p => p.id === localPlayer?.id);
+    const imReady      = me?.ready ?? false;
 
     if (isHost) {
-        hostConfig.style.display = 'block';
+        hostConfig.style.display   = 'block';
         waitingPanel.style.display = 'none';
-        startBtn.style.display = 'inline-block';
+        startBtn.style.display     = 'inline-block';
+        if (readyBtn) readyBtn.style.display = 'none';
 
-        // Sync counters to current lobbyState
+        // Counters
         document.getElementById('humans-display').textContent = lobbyState.humanSlots ?? 1;
-        document.getElementById('bots-display').textContent = lobbyState.botCount ?? 1;
-        document.getElementById('goal-display').textContent = lobbyState.killGoal ?? 10;
+        document.getElementById('bots-display').textContent   = lobbyState.botCount   ?? 1;
+        document.getElementById('goal-display').textContent   = lobbyState.killGoal   ?? 10;
 
-        // Player list for host
+        // Start button — disabled until everyone is ready
+        if (!startBtn.disabled || startBtn.textContent === 'WAITING FOR PLAYERS…') {
+            startBtn.disabled    = !allReady;
+            startBtn.textContent = allReady ? 'START GAME' : 'WAITING FOR PLAYERS…';
+        }
+
+        // Player list with ready indicators
         const list = document.getElementById('lobby-player-list');
         list.innerHTML = '';
-        if (lobbyState.players) {
-            for (const p of lobbyState.players) {
-                const chip = document.createElement('div');
-                chip.className = 'lobby-player-chip' +
-                    (p.id === localPlayer?.id ? ' is-you' : '') +
-                    (p.isHost ? ' is-host' : '');
-                chip.textContent = p.id === localPlayer?.id
-                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
-                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
-                list.appendChild(chip);
-            }
-        }
-    } else {
-        hostConfig.style.display = 'none';
-        waitingPanel.style.display = 'block';
-        startBtn.style.display = 'none';
+        for (const p of players) list.appendChild(buildPlayerChip(p));
 
-        // Show config summary for non-host
+    } else {
+        hostConfig.style.display   = 'none';
+        waitingPanel.style.display = 'block';
+        startBtn.style.display     = 'none';
+        if (readyBtn) readyBtn.style.display = 'inline-block';
+
+        // Config summary
         const cfgDisplay = document.getElementById('lobby-config-display');
-        cfgDisplay.textContent =
+        if (cfgDisplay) cfgDisplay.textContent =
             `${lobbyState.humanSlots ?? '?'} Players  ·  ${lobbyState.botCount ?? '?'} Bots  ·  First to ${lobbyState.killGoal ?? '?'} kills`;
 
-        // Player list for non-host
+        // Ready button state
+        if (readyBtn) {
+            readyBtn.textContent = imReady ? 'READY ✓' : 'READY UP';
+            readyBtn.classList.toggle('is-ready', imReady);
+        }
+
+        // Player list with ready indicators
         const list = document.getElementById('lobby-player-list-nonhost');
         list.innerHTML = '';
-        if (lobbyState.players) {
-            for (const p of lobbyState.players) {
-                const chip = document.createElement('div');
-                chip.className = 'lobby-player-chip' +
-                    (p.id === localPlayer?.id ? ' is-you' : '') +
-                    (p.isHost ? ' is-host' : '');
-                chip.textContent = p.id === localPlayer?.id
-                    ? `You (P${p.displayId})${p.isHost ? ' ★' : ''}`
-                    : `Player ${p.displayId}${p.isHost ? ' ★' : ''}`;
-                list.appendChild(chip);
-            }
-        }
+        for (const p of players) list.appendChild(buildPlayerChip(p));
     }
 }
 
@@ -483,6 +494,14 @@ document.getElementById('start-btn')?.addEventListener('click', () => {
     network.sendStartGame();
     const btn = document.getElementById('start-btn');
     if (btn) { btn.textContent = 'Starting...'; btn.disabled = true; }
+});
+
+// Ready button (non-host only)
+document.getElementById('ready-btn')?.addEventListener('click', () => {
+    if (isHost) return;
+    const me = (lobbyState.players || []).find(p => p.id === localPlayer?.id);
+    const imReady = me?.ready ?? false;
+    network.sendPlayerReady(!imReady);
 });
 
 // Volume slider

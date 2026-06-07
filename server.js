@@ -1926,10 +1926,23 @@ function handleMessage(playerId, msg) {
             broadcastLobbyState();
             break;
 
+        case 'player_ready':
+            if (gameActive) break;
+            if (playerId === lobbyHostId) break; // host is always implicitly ready
+            player.ready = !!msg.ready;
+            broadcastLobbyState();
+            break;
+
         case 'start_game':
             // Only host can start
             if (playerId !== lobbyHostId) break;
             if (gameActive) break;
+            // All non-host humans must be ready
+            {
+                const notReady = Array.from(players.values())
+                    .filter(p => !p.isBot && p.id !== lobbyHostId && !p.ready);
+                if (notReady.length > 0) break;
+            }
             killGoal = lobbyConfig.killGoal;
             console.log(`[Server] Host starting game (goal: ${killGoal})`);
 
