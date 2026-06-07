@@ -149,6 +149,10 @@
                     <span class="config-label">VOLUME</span>
                     <input type="range" id="volume-slider" min="0" max="100" value="60">
                 </div>
+                <div class="color-picker-row">
+                    <span class="config-label">YOUR COLOR</span>
+                    <div class="color-swatches" id="color-swatches-host"></div>
+                </div>
                 <div id="lobby-player-list" class="lobby-player-list"></div>
             </div>
 
@@ -156,7 +160,13 @@
             <div id="waiting-panel" style="display:none;">
                 <p class="waiting-text">Waiting for host to start…</p>
                 <div id="lobby-config-display" class="lobby-config-display"></div>
+                <div class="color-picker-row">
+                    <span class="config-label">YOUR COLOR</span>
+                    <div class="color-swatches" id="color-swatches-guest"></div>
+                </div>
                 <div id="lobby-player-list-nonhost" class="lobby-player-list"></div>
+                <!-- Ready button lives here so it shows whenever the waiting panel shows -->
+                <button id="ready-btn">READY UP</button>
             </div>
 
             <div class="lobby-controls">

@@ -398,7 +398,6 @@ function updateLobbyUI() {
         hostConfig.style.display   = 'block';
         waitingPanel.style.display = 'none';
         startBtn.style.display     = 'inline-block';
-        if (readyBtn) readyBtn.style.display = 'none';
 
         // Counters
         document.getElementById('humans-display').textContent = lobbyState.humanSlots ?? 1;
@@ -421,7 +420,6 @@ function updateLobbyUI() {
         hostConfig.style.display   = 'none';
         waitingPanel.style.display = 'block';
         startBtn.style.display     = 'none';
-        if (readyBtn) readyBtn.style.display = 'inline-block';
 
         // Config summary
         const cfgDisplay = document.getElementById('lobby-config-display');
