@@ -1933,15 +1933,16 @@ function handleMessage(playerId, msg) {
             broadcastLobbyState();
             break;
 
-        case 'start_game':
+        case 'start_game': {
             // Only host can start
             if (playerId !== lobbyHostId) break;
             if (gameActive) break;
-            // All non-host humans must be ready
-            {
-                const notReady = Array.from(players.values())
-                    .filter(p => !p.isBot && p.id !== lobbyHostId && !p.ready);
-                if (notReady.length > 0) break;
+            // All non-host humans must have readied up
+            const notReady = Array.from(players.values())
+                .filter(p => !p.isBot && p.id !== lobbyHostId && !p.ready);
+            if (notReady.length > 0) {
+                broadcastLobbyState(); // re-enable the host's Start button
+                break;
             }
             killGoal = lobbyConfig.killGoal;
             console.log(`[Server] Host starting game (goal: ${killGoal})`);
@@ -1963,6 +1964,7 @@ function handleMessage(playerId, msg) {
 
             checkGameStart();
             break;
+        }
 
         case 'pickup_object': {
             if (!player.alive) break;

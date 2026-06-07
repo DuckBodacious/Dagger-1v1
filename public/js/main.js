@@ -406,7 +406,8 @@ function updateLobbyUI() {
         document.getElementById('goal-display').textContent   = lobbyState.killGoal   ?? 10;
 
         // Start button — disabled until everyone is ready
-        if (!startBtn.disabled || startBtn.textContent === 'WAITING FOR PLAYERS…') {
+        // Only update when not mid-launch ('Starting…' means we already sent the message)
+        if (startBtn.textContent !== 'Starting...') {
             startBtn.disabled    = !allReady;
             startBtn.textContent = allReady ? 'START GAME' : 'WAITING FOR PLAYERS…';
         }
