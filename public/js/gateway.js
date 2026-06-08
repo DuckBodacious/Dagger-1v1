@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=5';
+import { CONFIG } from './config.js?v=6';
 
 const THROW_SPEED = 14; // m/s — applied along camera direction
 const THROW_UP    = 3;  // extra upward boost so level shots arc nicely

@@ -63,9 +63,9 @@ export const CONFIG = {
     // ─── Dash — Evasive Dash ───
     DASH_CHARGES: 3,
     DASH_COOLDOWN: 5.0,            // seconds per charge
-    DASH_DISTANCE: 7.0,            // meters
-    DASH_DURATION: 0.25,           // seconds
-    DASH_SPEED: 28.0,              // 7m / 0.25s = 28 m/s
+    DASH_DISTANCE: 5.95,           // meters (was 7.0, -15%)
+    DASH_DURATION: 0.2833,         // seconds (5.95m / 21 m/s)
+    DASH_SPEED: 21.0,              // m/s (was 28.0, -25%)
     DASH_TRAIL_DURATION: 0.5,      // seconds trail persists
 
     // ─── Barrels ───

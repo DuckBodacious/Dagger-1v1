@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js?v=5';
+import { CONFIG } from './config.js?v=6';
 
 // Tracks all input state for the local player
 export class InputManager {
