@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=7';
-import { InputManager } from './input.js?v=7';
-import { PlayerState } from './player.js?v=7';
-import { processMovement } from './movement.js?v=7';
-import { processCombat } from './combat.js?v=7';
-import { NetworkClient } from './network.js?v=7';
-import { GameRenderer } from './renderer.js?v=7';
-import { HUD } from './hud.js?v=7';
-import { EffectsManager } from './effects.js?v=7';
-import { checkCollision } from './arena.js?v=7';
-import { DestructibleManager } from './destructible.js?v=7';
-import { AudioManager } from './audio.js?v=7';
-import { JumpPadManager } from './jumppad.js?v=7';
-import { GatewayManager } from './gateway.js?v=7';
+import { CONFIG } from './config.js?v=8';
+import { InputManager } from './input.js?v=8';
+import { PlayerState } from './player.js?v=8';
+import { processMovement } from './movement.js?v=8';
+import { processCombat } from './combat.js?v=8';
+import { NetworkClient } from './network.js?v=8';
+import { GameRenderer } from './renderer.js?v=8';
+import { HUD } from './hud.js?v=8';
+import { EffectsManager } from './effects.js?v=8';
+import { checkCollision } from './arena.js?v=8';
+import { DestructibleManager } from './destructible.js?v=8';
+import { AudioManager } from './audio.js?v=8';
+import { JumpPadManager } from './jumppad.js?v=8';
+import { GatewayManager } from './gateway.js?v=8';
 
 // ─── Game State ───
 let localPlayer = null;
@@ -185,6 +185,8 @@ network.onGameState = (state) => {
         }
         // Apply chosen character color to the remote mesh
         if (ps.color) renderer.setPlayerColor(ps.id, ps.color);
+        // Bots get a black identifying stripe
+        if (ps.isBot) renderer.markAsBot(ps.id);
         const remote = remotePlayers.get(ps.id);
         remote.prevState = { ...remote.renderState };
         remote.state.deserialize(ps);

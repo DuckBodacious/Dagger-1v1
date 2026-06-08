@@ -443,6 +443,7 @@ class ServerPlayer {
             gatewayCooldown: this.gatewayCooldown,
             gatewayCount: this.gatewayCount,
             color: this.color,
+            isBot: this.isBot,
         };
     }
 }
@@ -1735,7 +1736,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
-app.get('/version', (_req, res) => res.json({ version: 'backstab-v7', backstabFix: true }));
+app.get('/version', (_req, res) => res.json({ version: 'botstripe-v8', botStripe: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,

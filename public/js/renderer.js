@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=7';
-import { buildArena } from './arena.js?v=7';
+import { CONFIG } from './config.js?v=8';
+import { buildArena } from './arena.js?v=8';
 
 export class GameRenderer {
     constructor(canvas) {
@@ -69,6 +69,7 @@ export class GameRenderer {
         // ─── Player meshes ───
         this.playerMeshes = new Map();  // playerId → THREE.Group
         this.playerColors = new Map();  // playerId → hex color string
+        this.botIds = new Set();        // playerIds that are bots (get a black stripe)
 
         // ─── Head bob state ───
         this.headBobPhase = 0;
@@ -200,7 +201,33 @@ export class GameRenderer {
 
         this.scene.add(group);
         this.playerMeshes.set(playerId, group);
+        // If we already know this is a bot, add the stripe immediately
+        if (this.botIds.has(playerId)) this._addBotStripe(group);
         return group;
+    }
+
+    // Mark a player as a bot — persists so the stripe survives mesh (re)creation
+    markAsBot(playerId) {
+        this.botIds.add(playerId);
+        const group = this.playerMeshes.get(playerId);
+        if (group) this._addBotStripe(group);
+    }
+
+    // Add a black identifying band around the capsule torso (idempotent)
+    _addBotStripe(group) {
+        if (group.getObjectByName('botStripe')) return;
+        const r = CONFIG.PLAYER_RADIUS + 0.02;
+        const stripeGeo = new THREE.CylinderGeometry(r, r, 0.22, 16, 1, true);
+        const stripeMat = new THREE.MeshStandardMaterial({
+            color: 0x000000,
+            roughness: 0.6,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+        });
+        const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+        stripe.name = 'botStripe';
+        stripe.position.y = CONFIG.PLAYER_HEIGHT * 0.15; // upper-chest height
+        group.add(stripe);
     }
 
     // Update a remote player's visual position
