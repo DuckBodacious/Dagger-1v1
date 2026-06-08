@@ -101,6 +101,28 @@ const SPAWN_POINTS = [
     { x:  15, z: -15 },
 ];
 
+// Selectable character colors (must match the client palette in main.js)
+const PLAYER_COLORS = [
+    '#22c55e', // green
+    '#92400e', // brown
+    '#ef4444', // red
+    '#f97316', // orange
+    '#eab308', // yellow
+    '#a855f7', // purple
+    '#06b6d4', // cyan
+    '#1e3a8a', // dark blue
+    '#ec4899', // pink
+    '#14b8a6', // teal
+    '#84cc16', // lime
+    '#e5e7eb', // white
+];
+
+// Picks the first palette color not already taken by another human player.
+function firstFreeColor() {
+    const taken = new Set(Array.from(players.values()).filter(p => !p.isBot && p.color).map(p => p.color));
+    return PLAYER_COLORS.find(c => !taken.has(c)) || PLAYER_COLORS[0];
+}
+
 // Returns the spawn point furthest from all living enemies of excludeId.
 function getBestSpawn(excludeId) {
     let best = SPAWN_POINTS[0];
@@ -384,6 +406,7 @@ class ServerPlayer {
 
         this.regenTimer = 0;
         this.ready = false;
+        this.color = null; // chosen lobby color (hex string e.g. '#22c55e')
         this.ws = null;
 
         this.lastInput = null;
@@ -419,6 +442,7 @@ class ServerPlayer {
             carriedObjectId: this.carriedObjectId,
             gatewayCooldown: this.gatewayCooldown,
             gatewayCount: this.gatewayCount,
+            color: this.color,
         };
     }
 }
@@ -1671,6 +1695,7 @@ function spawnBot() {
     bot.z = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].z;
     bot.yaw = spawnIdx === 0 ? 0 : Math.PI;
     bot.y = CONFIG.PLAYER_HEIGHT / 2;
+    bot.color = firstFreeColor(); // give bots an unused color too
     bot.botAI = new BotAI(bot);
     players.set(botId, bot);
     console.log(`[Server] Bot spawned as Player ${botId}`);
@@ -1697,6 +1722,7 @@ function broadcastLobbyState() {
             displayId: p.displayId,
             isHost: p.id === lobbyHostId,
             ready: p.id === lobbyHostId ? true : !!p.ready, // host counts as always ready
+            color: p.color,
         }));
     broadcast({
         type: 'lobby_state',
@@ -1709,7 +1735,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
-app.get('/version', (_req, res) => res.json({ version: 'ready-v5', readyInBroadcast: true }));
+app.get('/version', (_req, res) => res.json({ version: 'colors-v6', colorPicker: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,
@@ -1829,6 +1855,7 @@ wss.on('connection', (ws) => {
     player.z = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].z;
     player.yaw = spawnIdx === 0 ? 0 : Math.PI;
     player.ws = ws;
+    player.color = firstFreeColor(); // assign a default unused color
     players.set(playerId, player);
 
     // First human player becomes host
@@ -1937,6 +1964,18 @@ function handleMessage(playerId, msg) {
             player.ready = !!msg.ready;
             broadcastLobbyState();
             break;
+
+        case 'player_color': {
+            if (gameActive) break;
+            // Reject if invalid or already taken by another human
+            if (!PLAYER_COLORS.includes(msg.color)) break;
+            const colorTaken = Array.from(players.values())
+                .some(p => !p.isBot && p.id !== playerId && p.color === msg.color);
+            if (colorTaken) break;
+            player.color = msg.color;
+            broadcastLobbyState();
+            break;
+        }
 
         case 'start_game': {
             // Only host can start

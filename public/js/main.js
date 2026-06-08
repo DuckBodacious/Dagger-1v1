@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=4';
-import { InputManager } from './input.js?v=4';
-import { PlayerState } from './player.js?v=4';
-import { processMovement } from './movement.js?v=4';
-import { processCombat } from './combat.js?v=4';
-import { NetworkClient } from './network.js?v=4';
-import { GameRenderer } from './renderer.js?v=4';
-import { HUD } from './hud.js?v=4';
-import { EffectsManager } from './effects.js?v=4';
-import { checkCollision } from './arena.js?v=4';
-import { DestructibleManager } from './destructible.js?v=4';
-import { AudioManager } from './audio.js?v=4';
-import { JumpPadManager } from './jumppad.js?v=4';
-import { GatewayManager } from './gateway.js?v=4';
+import { CONFIG } from './config.js?v=5';
+import { InputManager } from './input.js?v=5';
+import { PlayerState } from './player.js?v=5';
+import { processMovement } from './movement.js?v=5';
+import { processCombat } from './combat.js?v=5';
+import { NetworkClient } from './network.js?v=5';
+import { GameRenderer } from './renderer.js?v=5';
+import { HUD } from './hud.js?v=5';
+import { EffectsManager } from './effects.js?v=5';
+import { checkCollision } from './arena.js?v=5';
+import { DestructibleManager } from './destructible.js?v=5';
+import { AudioManager } from './audio.js?v=5';
+import { JumpPadManager } from './jumppad.js?v=5';
+import { GatewayManager } from './gateway.js?v=5';
 
 // ─── Game State ───
 let localPlayer = null;
@@ -183,6 +183,8 @@ network.onGameState = (state) => {
                 prevHp: CONFIG.PLAYER_HP,
             });
         }
+        // Apply chosen character color to the remote mesh
+        if (ps.color) renderer.setPlayerColor(ps.id, ps.color);
         const remote = remotePlayers.get(ps.id);
         remote.prevState = { ...remote.renderState };
         remote.state.deserialize(ps);
@@ -224,6 +226,10 @@ network.onGameState = (state) => {
 
 network.onLobbyState = (msg) => {
     lobbyState = msg;
+    // Apply each player's chosen color to their in-world mesh (persists into the game)
+    for (const p of msg.players || []) {
+        if (p.color) renderer.setPlayerColor(p.id, p.color);
+    }
     updateLobbyUI();
 };
 
@@ -371,6 +377,49 @@ network.handleMessage = (msg) => {
 
 // ─── Lobby UI ───
 
+// Character color palette — must match PLAYER_COLORS in server.js
+const COLORS = [
+    { hex: '#22c55e', name: 'Green' },
+    { hex: '#92400e', name: 'Brown' },
+    { hex: '#ef4444', name: 'Red' },
+    { hex: '#f97316', name: 'Orange' },
+    { hex: '#eab308', name: 'Yellow' },
+    { hex: '#a855f7', name: 'Purple' },
+    { hex: '#06b6d4', name: 'Cyan' },
+    { hex: '#1e3a8a', name: 'Dark Blue' },
+    { hex: '#ec4899', name: 'Pink' },
+    { hex: '#14b8a6', name: 'Teal' },
+    { hex: '#84cc16', name: 'Lime' },
+    { hex: '#e5e7eb', name: 'White' },
+];
+
+function buildColorSwatches(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const players = lobbyState.players || [];
+    const myColor = players.find(p => p.id === localPlayer?.id)?.color;
+    // Colors taken by OTHER players
+    const takenByOthers = new Set(
+        players.filter(p => p.id !== localPlayer?.id && p.color).map(p => p.color)
+    );
+
+    container.innerHTML = '';
+    for (const c of COLORS) {
+        const btn = document.createElement('button');
+        btn.className = 'color-swatch' +
+            (c.hex === myColor ? ' selected' : '') +
+            (takenByOthers.has(c.hex) ? ' taken' : '');
+        btn.style.background = c.hex;
+        btn.title = c.name + (takenByOthers.has(c.hex) ? ' (taken)' : '');
+        btn.disabled = takenByOthers.has(c.hex);
+        btn.addEventListener('click', () => {
+            if (takenByOthers.has(c.hex)) return;
+            network.sendPlayerColor(c.hex);
+        });
+        container.appendChild(btn);
+    }
+}
+
 function buildPlayerChip(p) {
     const chip  = document.createElement('div');
     const isYou = p.id === localPlayer?.id;
@@ -381,12 +430,20 @@ function buildPlayerChip(p) {
         (p.isHost ? ' is-host' : '') +
         (p.ready && !p.isHost ? ' is-ready' : '');
 
+    // Color dot showing the player's chosen character color
+    if (p.color) {
+        const colorDot = document.createElement('span');
+        colorDot.className = 'player-color-dot';
+        colorDot.style.background = p.color;
+        chip.appendChild(colorDot);
+    }
+
     if (p.isHost) {
-        chip.textContent = name + '  ★ HOST';
+        chip.appendChild(document.createTextNode(' ' + name + '  ★ HOST'));
     } else {
         const dot = document.createElement('span');
         dot.className   = 'ready-dot ' + (p.ready ? 'dot-ready' : 'dot-waiting');
-        dot.textContent = p.ready ? '●' : '○';
+        dot.textContent = p.ready ? ' ●' : ' ○';
         chip.appendChild(dot);
         chip.appendChild(document.createTextNode('  ' + name + '  —  ' + (p.ready ? 'READY' : 'NOT READY')));
     }
@@ -422,6 +479,9 @@ function updateLobbyUI() {
             startBtn.textContent = allReady ? 'START GAME' : 'WAITING FOR PLAYERS…';
         }
 
+        // Color swatches
+        buildColorSwatches('color-swatches-host');
+
         // Player list with ready indicators
         const list = document.getElementById('lobby-player-list');
         list.innerHTML = '';
@@ -443,6 +503,9 @@ function updateLobbyUI() {
             readyBtn.disabled    = imReady;
             readyBtn.classList.toggle('is-ready', imReady);
         }
+
+        // Color swatches
+        buildColorSwatches('color-swatches-guest');
 
         // Player list with ready indicators
         const list = document.getElementById('lobby-player-list-nonhost');

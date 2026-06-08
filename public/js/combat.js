@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js?v=4';
+import { CONFIG } from './config.js?v=5';
 
 // Process combat inputs and state transitions for a player
 export function processCombat(player, input, dt) {
