@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=6';
-import { buildArena } from './arena.js?v=6';
+import { CONFIG } from './config.js?v=7';
+import { buildArena } from './arena.js?v=7';
 
 export class GameRenderer {
     constructor(canvas) {

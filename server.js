@@ -1735,7 +1735,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
-app.get('/version', (_req, res) => res.json({ version: 'colors-v6', colorPicker: true }));
+app.get('/version', (_req, res) => res.json({ version: 'backstab-v7', backstabFix: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,
@@ -2675,7 +2675,10 @@ function processCombat(player, input) {
                 const backDot = toAttLen > 0.01
                     ? (targetFwdX * (toAttX / toAttLen) + targetFwdZ * (toAttZ / toAttLen))
                     : 1;
-                isBackstab = backDot < 0.0; // ±90° from behind (25% wider than default ±72.5°)
+                // Backstab if attacker is behind the target's shoulder line, with a
+                // small margin past 90° so flick-stabs that land slightly beside the
+                // target still count. Must match combat.js (client prediction).
+                isBackstab = backDot < 0.15;
 
                 hitDamage = isBackstab ? CONFIG.CHARGED_DAMAGE_BACK : CONFIG.CHARGED_DAMAGE_FRONT;
                 hitPlayerId = other.id;

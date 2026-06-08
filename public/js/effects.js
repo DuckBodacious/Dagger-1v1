@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=6';
+import { CONFIG } from './config.js?v=7';
 
 // Manages all visual effects: slash trails, dash trails, particles, screen shake
 export class EffectsManager {

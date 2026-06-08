@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=6';
+import { CONFIG } from './config.js?v=7';
 
 // All collidable boxes for AABB collision checks (used by both client and server)
 // Each box: { minX, minY, minZ, maxX, maxY, maxZ, destructible?, type? }

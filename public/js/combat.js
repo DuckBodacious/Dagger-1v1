@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js?v=6';
+import { CONFIG } from './config.js?v=7';
 
 // Process combat inputs and state transitions for a player
 export function processCombat(player, input, dt) {
@@ -141,9 +141,10 @@ function isAttackFromBehind(attacker, target) {
     const toAttackerX = dx / dist;
     const toAttackerZ = dz / dist;
 
-    // If attacker is behind target, the dot product of target's forward and direction-to-attacker is negative
+    // If attacker is behind target, the dot product of target's forward and direction-to-attacker is negative.
+    // Threshold MUST match the server (server.js charged_attack backstab check).
     const dot = targetForward.x * toAttackerX + targetForward.z * toAttackerZ;
-    return dot < -0.3; // Behind threshold
+    return dot < 0.15; // slightly past 90° so flick-stabs beside the target still count
 }
 
 // Apply damage to a player, return true if killed
