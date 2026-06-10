@@ -123,6 +123,14 @@ function firstFreeColor() {
     return PLAYER_COLORS.find(c => !taken.has(c)) || PLAYER_COLORS[0];
 }
 
+// Picks a RANDOM palette color not already taken by any player (human or bot).
+function randomFreeColor() {
+    const taken = new Set(Array.from(players.values()).filter(p => p.color).map(p => p.color));
+    const free = PLAYER_COLORS.filter(c => !taken.has(c));
+    const pool = free.length > 0 ? free : PLAYER_COLORS;
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
 // Returns the spawn point furthest from all living enemies of excludeId.
 function getBestSpawn(excludeId) {
     let best = SPAWN_POINTS[0];
@@ -1696,7 +1704,7 @@ function spawnBot() {
     bot.z = SPAWN_POINTS[spawnIdx % SPAWN_POINTS.length].z;
     bot.yaw = spawnIdx === 0 ? 0 : Math.PI;
     bot.y = CONFIG.PLAYER_HEIGHT / 2;
-    bot.color = firstFreeColor(); // give bots an unused color too
+    bot.color = randomFreeColor(); // give bots a random unused color
     bot.botAI = new BotAI(bot);
     players.set(botId, bot);
     console.log(`[Server] Bot spawned as Player ${botId}`);
@@ -1736,7 +1744,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
-app.get('/version', (_req, res) => res.json({ version: 'botstripe-v8', botStripe: true }));
+app.get('/version', (_req, res) => res.json({ version: 'botcolor-v9', randomBotColor: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,
