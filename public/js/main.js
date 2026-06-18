@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=8';
-import { InputManager } from './input.js?v=8';
-import { PlayerState } from './player.js?v=8';
-import { processMovement } from './movement.js?v=8';
-import { processCombat } from './combat.js?v=8';
-import { NetworkClient } from './network.js?v=8';
-import { GameRenderer } from './renderer.js?v=8';
-import { HUD } from './hud.js?v=8';
-import { EffectsManager } from './effects.js?v=8';
-import { checkCollision } from './arena.js?v=8';
-import { DestructibleManager } from './destructible.js?v=8';
-import { AudioManager } from './audio.js?v=8';
-import { JumpPadManager } from './jumppad.js?v=8';
-import { GatewayManager } from './gateway.js?v=8';
+import { CONFIG } from './config.js?v=9';
+import { InputManager } from './input.js?v=9';
+import { PlayerState } from './player.js?v=9';
+import { processMovement } from './movement.js?v=9';
+import { processCombat } from './combat.js?v=9';
+import { NetworkClient } from './network.js?v=9';
+import { GameRenderer } from './renderer.js?v=9';
+import { HUD } from './hud.js?v=9';
+import { EffectsManager } from './effects.js?v=9';
+import { checkCollision } from './arena.js?v=9';
+import { DestructibleManager } from './destructible.js?v=9';
+import { AudioManager } from './audio.js?v=9';
+import { JumpPadManager } from './jumppad.js?v=9';
+import { GatewayManager } from './gateway.js?v=9';
 
 // ─── Game State ───
 let localPlayer = null;

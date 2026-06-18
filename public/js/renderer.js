@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=8';
-import { buildArena } from './arena.js?v=8';
+import { CONFIG } from './config.js?v=9';
+import { buildArena } from './arena.js?v=9';
 
 export class GameRenderer {
     constructor(canvas) {
@@ -74,6 +74,18 @@ export class GameRenderer {
         // ─── Head bob state ───
         this.headBobPhase = 0;
         this.headBobIntensity = 0;
+
+        // ─── First-person dagger viewmodel ───
+        // Parent to the camera so it follows the view; add camera to scene so it renders.
+        this.scene.add(this.camera);
+        this.viewmodel = this._buildDagger();
+        this.viewmodel.scale.setScalar(1.15);
+        // Bottom-right of the view, angled inward toward the crosshair
+        this.viewmodelRest = new THREE.Vector3(0.28, -0.26, -0.55);
+        this.viewmodel.position.copy(this.viewmodelRest);
+        this.viewmodel.rotation.set(0.15, -0.35, 0.1);
+        this.camera.add(this.viewmodel);
+        this._vmThrust = 0; // 0..1 attack lunge amount
 
         // ─── Respawn fade ───
         this.respawnFadeTimer = 0;
@@ -199,11 +211,53 @@ export class GameRenderer {
         indicator.name = 'indicator';
         group.add(indicator);
 
+        // Dagger held in the right hand, pointing forward (-Z)
+        const dagger = this._buildDagger();
+        dagger.name = 'dagger';
+        // Right-hand rest position at roughly chest height, ahead of the body
+        dagger.position.set(CONFIG.PLAYER_RADIUS + 0.05, 0.15, -CONFIG.PLAYER_RADIUS - 0.1);
+        group.add(dagger);
+
         this.scene.add(group);
         this.playerMeshes.set(playerId, group);
         // If we already know this is a bot, add the stripe immediately
         if (this.botIds.has(playerId)) this._addBotStripe(group);
         return group;
+    }
+
+    // Build a dagger mesh (blade + crossguard + grip), tip pointing -Z
+    _buildDagger() {
+        const dagger = new THREE.Group();
+
+        // Blade — slim tapered box, metallic
+        const bladeGeo = new THREE.ConeGeometry(0.04, 0.5, 4);
+        const bladeMat = new THREE.MeshStandardMaterial({
+            color: 0xcfd8e3,
+            metalness: 0.9,
+            roughness: 0.25,
+            emissive: 0x222a33,
+            emissiveIntensity: 0.3,
+        });
+        const blade = new THREE.Mesh(bladeGeo, bladeMat);
+        blade.rotation.x = -Math.PI / 2; // point along -Z
+        blade.position.z = -0.30;
+        dagger.add(blade);
+
+        // Crossguard — small dark bar across the blade base
+        const guardGeo = new THREE.BoxGeometry(0.16, 0.03, 0.04);
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.6, roughness: 0.5 });
+        const guard = new THREE.Mesh(guardGeo, darkMat);
+        guard.position.z = -0.05;
+        dagger.add(guard);
+
+        // Grip — short handle behind the guard
+        const gripGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.14, 8);
+        const grip = new THREE.Mesh(gripGeo, darkMat);
+        grip.rotation.x = Math.PI / 2;
+        grip.position.z = 0.04;
+        dagger.add(grip);
+
+        return dagger;
     }
 
     // Mark a player as a bot — persists so the stripe survives mesh (re)creation
@@ -251,6 +305,17 @@ export class GameRenderer {
         if (body) {
             const targetScale = state.crouching ? CONFIG.PLAYER_CROUCH_HEIGHT / CONFIG.PLAYER_HEIGHT : 1;
             body.scale.y = THREE.MathUtils.lerp(body.scale.y, targetScale, 0.3);
+        }
+
+        // Dagger thrust animation on attack states
+        const dagger = mesh.getObjectByName('dagger');
+        if (dagger) {
+            const attacking = state.attackState === 'primary' ||
+                              state.attackState === 'charged_attack' ||
+                              state.attackState === 'elbow';
+            const restZ = -CONFIG.PLAYER_RADIUS - 0.1;
+            const targetZ = attacking ? restZ - 0.45 : restZ; // lunge forward
+            dagger.position.z = THREE.MathUtils.lerp(dagger.position.z, targetZ, attacking ? 0.6 : 0.25);
         }
     }
 
@@ -330,6 +395,28 @@ export class GameRenderer {
         this.camera.rotation.x = playerState.pitch;
         // Subtle roll during head bob for natural feel
         this.camera.rotation.z = Math.sin(this.headBobPhase * 0.5) * 0.003 * this.headBobIntensity;
+
+        // ─── First-person dagger viewmodel ───
+        if (this.viewmodel) {
+            const attacking = playerState.attackState === 'primary' ||
+                              playerState.attackState === 'charged_attack' ||
+                              playerState.attackState === 'elbow';
+            const charging = playerState.attackState === 'charged_charging';
+            // Lunge forward on attack, pull back slightly while charging
+            const target = attacking ? 1 : 0;
+            const rate = attacking ? 0.55 : 0.18;
+            this._vmThrust += (target - this._vmThrust) * Math.min(1, rate * dt * 60);
+
+            const rest = this.viewmodelRest;
+            this.viewmodel.position.set(
+                rest.x,
+                rest.y + this._vmThrust * 0.04 + (charging ? -0.03 : 0),
+                rest.z - this._vmThrust * 0.35 + (charging ? 0.06 : 0),
+            );
+            // Small idle sway + thrust tilt
+            this.viewmodel.rotation.x = 0.15 - this._vmThrust * 0.25
+                + Math.sin(this.headBobPhase) * 0.01 * this.headBobIntensity;
+        }
     }
 
     render(dt = 1 / 60) {

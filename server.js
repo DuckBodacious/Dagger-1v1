@@ -1744,7 +1744,7 @@ function broadcastLobbyState() {
 }
 
 const app = express();
-app.get('/version', (_req, res) => res.json({ version: 'botcolor-v9', randomBotColor: true }));
+app.get('/version', (_req, res) => res.json({ version: 'dagger-v10', visibleDagger: true }));
 app.use(express.static(join(__dirname, 'public'), {
     etag: false,
     lastModified: false,

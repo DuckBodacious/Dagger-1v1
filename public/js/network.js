@@ -1,5 +1,5 @@
 // v2 — added sendPlayerReady
-import { CONFIG } from './config.js?v=8';
+import { CONFIG } from './config.js?v=9';
 
 export class NetworkClient {
     constructor() {
