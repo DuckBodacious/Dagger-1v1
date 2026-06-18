@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js?v=9';
+import { CONFIG } from './config.js?v=10';
 
 // Procedural audio engine using Web Audio API with 3D spatial positioning
 export class AudioManager {

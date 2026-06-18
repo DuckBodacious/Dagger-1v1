@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js?v=9';
+import { CONFIG } from './config.js?v=10';
 
 // Process movement for a player given their input — used on both client and server
 export function processMovement(player, input, dt, collisionCheck) {

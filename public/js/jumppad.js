@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=9';
-import { raycast } from './arena.js?v=9';
+import { CONFIG } from './config.js?v=10';
+import { raycast } from './arena.js?v=10';
 
 const UP = new THREE.Vector3(0, 1, 0);
 

@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js?v=9';
+import { CONFIG } from './config.js?v=10';
 
 // Player state used on both client (prediction) and server (authority)
 export class PlayerState {
